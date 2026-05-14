@@ -1,6 +1,7 @@
 import { Loader2, Sparkles } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { generatePack } from "./api/generatePack";
+import { listModels } from "./api/listModels";
 import { OutputTabs } from "./components/OutputTabs";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { UploadPanel } from "./components/UploadPanel";
@@ -33,6 +34,9 @@ export default function App() {
   const [response, setResponse] = useState<GeneratePackResponse | null>(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [modelListError, setModelListError] = useState("");
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
 
   const filenameWarnings = useMemo(
     () => getFilenameWarnings(screenshots),
@@ -48,6 +52,8 @@ export default function App() {
 
   useEffect(() => {
     window.localStorage.setItem(endpointStorageKey, form.aiEndpointUrl);
+    setAvailableModels([]);
+    setModelListError("");
   }, [form.aiEndpointUrl]);
 
   useEffect(() => {
@@ -80,6 +86,37 @@ export default function App() {
     }
   }
 
+  async function loadAvailableModels() {
+    const endpointUrl = form.aiEndpointUrl.trim();
+    if (!endpointUrl) {
+      setModelListError("AI endpoint URL is required before loading models.");
+      return;
+    }
+
+    if (isLoadingModels || availableModels.length > 0) {
+      return;
+    }
+
+    setIsLoadingModels(true);
+    setModelListError("");
+
+    try {
+      const payload = await listModels(endpointUrl);
+      setAvailableModels(payload.models);
+
+      if (payload.models.length === 0) {
+        setModelListError("No models were returned by this endpoint.");
+      }
+    } catch (caught) {
+      setAvailableModels([]);
+      setModelListError(
+        caught instanceof Error ? caught.message : "Could not load models."
+      );
+    } finally {
+      setIsLoadingModels(false);
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -91,7 +128,14 @@ export default function App() {
 
       <main className="workspace">
         <form className="input-column" onSubmit={submit}>
-          <SettingsPanel form={form} onChange={updateForm} />
+          <SettingsPanel
+            form={form}
+            availableModels={availableModels}
+            isLoadingModels={isLoadingModels}
+            modelListError={modelListError}
+            onChange={updateForm}
+            onLoadModels={loadAvailableModels}
+          />
           <UploadPanel
             screenshots={screenshots}
             warnings={filenameWarnings}
