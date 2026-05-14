@@ -1,45 +1,36 @@
 const VALID_VIEWPORTS = new Set(["Desktop", "Tablet", "Mobile", "Unknown"]);
 const VALID_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 
-export interface ParsedFilename {
+export type ParsedScreenshotName = {
   filename: string;
-  screenName: string;
-  state: string;
-  viewport: string;
-  warnings: string[];
-}
+  screenName: string | null;
+  state: string | null;
+  viewport: string | null;
+  isValid: boolean;
+  warning?: string;
+};
 
-export function parseScreenshotFilename(filename: string): ParsedFilename {
-  const warnings: string[] = [];
+export function parseScreenshotFilename(filename: string): ParsedScreenshotName {
   const extension = getExtension(filename);
   const basename = filename.slice(0, filename.length - extension.length);
   const parts = basename.split("_");
-
-  if (!VALID_EXTENSIONS.has(extension.toLowerCase())) {
-    warnings.push(
-      `Filename ${filename} uses an unsupported extension. Upload PNG, JPG, JPEG, or WEBP.`
-    );
-  }
-
   const hasRequiredParts = parts.length >= 3;
-  const screenName = parts[0] ?? "";
-  const viewport = hasRequiredParts ? parts[parts.length - 1] : "";
-  const state = hasRequiredParts ? parts.slice(1, -1).join("_") : "";
+  const screenName = parts[0] || null;
+  const viewport = hasRequiredParts ? parts[parts.length - 1] || null : null;
+  const state = hasRequiredParts ? parts.slice(1, -1).join("_") || null : null;
+  const hasAllowedExtension = VALID_EXTENSIONS.has(extension.toLowerCase());
+  const hasValidViewport = viewport ? VALID_VIEWPORTS.has(viewport) : false;
+  const isValid = Boolean(
+    hasAllowedExtension && screenName && state && viewport && hasValidViewport
+  );
 
-  if (!hasRequiredParts || !screenName || !state || !viewport) {
-    warnings.push(
-      `Filename ${filename} does not match <ScreenName>_<State>_<Viewport>.`
-    );
-  }
-
-  if (hasRequiredParts && !state) {
-    warnings.push(`Filename ${filename} is missing a state.`);
-  }
-
-  if (hasRequiredParts && viewport && !VALID_VIEWPORTS.has(viewport)) {
-    warnings.push(
-      `Filename ${filename} uses viewport "${viewport}". Use Desktop, Tablet, Mobile, or Unknown.`
-    );
+  let warning: string | undefined;
+  if (!isValid) {
+    warning =
+      "Filename should follow: <ScreenName>_<State>_<Viewport>.png";
+    if (viewport && !hasValidViewport) {
+      warning += " Viewport should be Desktop, Tablet, Mobile, or Unknown.";
+    }
   }
 
   return {
@@ -47,12 +38,16 @@ export function parseScreenshotFilename(filename: string): ParsedFilename {
     screenName,
     state,
     viewport,
-    warnings
+    isValid,
+    warning
   };
 }
 
 export function getFilenameWarnings(files: File[]): string[] {
-  return files.flatMap((file) => parseScreenshotFilename(file.name).warnings);
+  return files
+    .map((file) => parseScreenshotFilename(file.name))
+    .filter((parsed) => !parsed.isValid && parsed.warning)
+    .map((parsed) => `${parsed.filename}: ${parsed.warning}`);
 }
 
 function getExtension(filename: string): string {

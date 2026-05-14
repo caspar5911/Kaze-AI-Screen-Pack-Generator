@@ -1,27 +1,34 @@
-import { Loader2, Sparkles } from "lucide-react";
+import { Loader2, Moon, Sparkles, Sun } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { generatePack } from "./api/generatePack";
 import { listModels } from "./api/listModels";
-import { OutputTabs } from "./components/OutputTabs";
-import { SettingsPanel } from "./components/SettingsPanel";
-import { UploadPanel } from "./components/UploadPanel";
+import { AdvancedSettingsCard } from "./components/AdvancedSettingsCard";
+import { OutputPanel } from "./components/OutputPanel";
+import { PackDetailsCard } from "./components/PackDetailsCard";
+import { ScreenshotUploadCard } from "./components/ScreenshotUploadCard";
 import type { GeneratePackResponse, PackFormState } from "./types";
 import { getFilenameWarnings } from "./utils/filenameParser";
 
 const endpointStorageKey = "kaze-screen-pack-generator.aiEndpointUrl";
 const modelStorageKey = "kaze-screen-pack-generator.modelName";
+const themeStorageKey = "kaze-screen-pack-generator.theme";
+
+type Theme = "dark" | "light";
 
 const defaultForm: PackFormState = {
   projectName: "",
   shortDescription: "",
-  designSource: "Screenshot export from Figma/Sketch",
+  designSource: "Screenshot export",
   iconSystem: "Font Awesome",
   additionalNotes: "",
   aiEndpointUrl: "http://localhost:11434/api/chat",
-  modelName: "qwen3.5-vl"
+  modelName: "qwen3.6:35b"
 };
 
 export default function App() {
+  const [theme, setTheme] = useState<Theme>(() =>
+    window.localStorage.getItem(themeStorageKey) === "light" ? "light" : "dark"
+  );
   const [form, setForm] = useState<PackFormState>(() => ({
     ...defaultForm,
     aiEndpointUrl:
@@ -49,6 +56,11 @@ export default function App() {
     form.modelName.trim().length > 0 &&
     screenshots.length > 0 &&
     !isLoading;
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem(themeStorageKey, theme);
+  }, [theme]);
 
   useEffect(() => {
     window.localStorage.setItem(endpointStorageKey, form.aiEndpointUrl);
@@ -123,23 +135,45 @@ export default function App() {
         <div>
           <p className="eyebrow">Internal Kaze Tool</p>
           <h1>Kaze Screen Pack Generator</h1>
+          <p className="header-subtitle">
+            Generate implementation-ready markdown packs from Kaze-based
+            Figma/Sketch screen exports.
+          </p>
         </div>
+        <button
+          className="theme-toggle"
+          type="button"
+          onClick={() =>
+            setTheme((currentTheme) =>
+              currentTheme === "dark" ? "light" : "dark"
+            )
+          }
+          aria-label={
+            theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
+          }
+          title={
+            theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
+          }
+        >
+          {theme === "dark" ? (
+            <Sun aria-hidden="true" size={18} />
+          ) : (
+            <Moon aria-hidden="true" size={18} />
+          )}
+          <span>{theme === "dark" ? "Light" : "Dark"}</span>
+        </button>
       </header>
 
       <main className="workspace">
         <form className="input-column" onSubmit={submit}>
-          <SettingsPanel
+          <PackDetailsCard form={form} onChange={updateForm} />
+          <AdvancedSettingsCard
             form={form}
             availableModels={availableModels}
             isLoadingModels={isLoadingModels}
             modelListError={modelListError}
             onChange={updateForm}
             onLoadModels={loadAvailableModels}
-          />
-          <UploadPanel
-            screenshots={screenshots}
-            warnings={filenameWarnings}
-            onChange={setScreenshots}
           />
 
           {error && (
@@ -154,29 +188,22 @@ export default function App() {
             ) : (
               <Sparkles aria-hidden="true" size={18} />
             )}
-            Generate Pack
+            {isLoading ? "Generating..." : "Generate Implementation Pack"}
           </button>
         </form>
 
         <div className="output-column">
-          {response ? (
-            <OutputTabs
-              files={response.files}
-              rawResponse={response.rawResponse}
-              warnings={response.warnings}
-              projectName={form.projectName}
-              onRegenerate={() => submit()}
-              isLoading={isLoading}
-            />
-          ) : (
-            <section className="empty-output" aria-label="Generated output">
-              <h2>Generated files will appear here.</h2>
-              <p>
-                The pack will be returned as five markdown files with the exact
-                filenames required by the implementation workflow.
-              </p>
-            </section>
-          )}
+          <ScreenshotUploadCard
+            screenshots={screenshots}
+            warnings={filenameWarnings}
+            onChange={setScreenshots}
+          />
+          <OutputPanel
+            response={response}
+            projectName={form.projectName}
+            isLoading={isLoading}
+            onRegenerate={() => submit()}
+          />
         </div>
       </main>
     </div>

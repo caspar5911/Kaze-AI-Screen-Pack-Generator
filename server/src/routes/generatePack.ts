@@ -96,7 +96,13 @@ generatePackRouter.post(
       const parsed = parseAiResponse({
         responseText: aiResponse,
         allowedFilenames: fileMap.entries.map((entry) => entry.filename),
-        kazeComponentCatalog
+        kazeComponentCatalog,
+        parsedFilenames: fileMap.entries.map((entry) => ({
+          filename: entry.filename,
+          screenName: entry.parsed.screenName,
+          state: entry.parsed.state,
+          viewport: entry.parsed.viewport
+        }))
       });
 
       response.json({
@@ -131,7 +137,7 @@ function validateFields(body: Record<string, unknown>) {
     projectName,
     shortDescription,
     designSource:
-      getOptionalString(body.designSource) || "Screenshot export from Figma/Sketch",
+      getOptionalString(body.designSource) || "Screenshot export",
     iconSystem: getOptionalString(body.iconSystem) || "Font Awesome",
     additionalNotes: getOptionalString(body.additionalNotes),
     aiEndpointUrl,

@@ -1,7 +1,11 @@
-import { Check, Clipboard, Copy, Download, RefreshCw } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { downloadMarkdownZip } from "../utils/downloadZip";
-import { EXPECTED_FILES, type GeneratedFileName, type GeneratedFiles } from "../types";
+import {
+  EXPECTED_FILES,
+  type GeneratedFiles,
+  type OutputTabName
+} from "../types";
+import { CopyButtons } from "./CopyButtons";
 
 interface OutputTabsProps {
   files: GeneratedFiles;
@@ -20,12 +24,26 @@ export function OutputTabs({
   onRegenerate,
   isLoading
 }: OutputTabsProps) {
-  const [activeFile, setActiveFile] = useState<GeneratedFileName>(
+  const [activeFile, setActiveFile] = useState<OutputTabName>(
     EXPECTED_FILES[0]
   );
   const [copiedLabel, setCopiedLabel] = useState("");
+  const tabs = useMemo<OutputTabName[]>(
+    () => [...EXPECTED_FILES, "Raw Response"],
+    []
+  );
+  const hasParseWarning = warnings.some((warning) =>
+    warning.toLowerCase().includes("could not parse all expected files")
+  );
 
-  const currentContent = files[activeFile] ?? rawResponse;
+  useEffect(() => {
+    if (hasParseWarning) {
+      setActiveFile("Raw Response");
+    }
+  }, [hasParseWarning]);
+
+  const currentContent =
+    activeFile === "Raw Response" ? rawResponse : files[activeFile] ?? "";
   const allContent = useMemo(() => formatAllFiles(files, rawResponse), [
     files,
     rawResponse
@@ -49,6 +67,11 @@ export function OutputTabs({
       <div className="output-toolbar">
         <div>
           <h2 id="output-heading">Generated Pack</h2>
+          {hasParseWarning && (
+            <p className="output-warning">
+              Could not parse all expected files. Showing raw response.
+            </p>
+          )}
           {warnings.length > 0 && (
             <p className="output-warning">
               {warnings.length} warning{warnings.length === 1 ? "" : "s"} need review.
@@ -56,54 +79,18 @@ export function OutputTabs({
           )}
         </div>
 
-        <div className="button-row">
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => copyText(currentContent, "current")}
-            disabled={!currentContent}
-          >
-            {copiedLabel === "current" ? (
-              <Check aria-hidden="true" size={17} />
-            ) : (
-              <Copy aria-hidden="true" size={17} />
-            )}
-            Copy current file
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => copyText(allContent, "all")}
-            disabled={!allContent}
-          >
-            {copiedLabel === "all" ? (
-              <Check aria-hidden="true" size={17} />
-            ) : (
-              <Clipboard aria-hidden="true" size={17} />
-            )}
-            Copy all
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() =>
-              downloadMarkdownZip(zipReadyFiles, `${slugify(projectName)}-pack.zip`)
-            }
-            disabled={Object.values(files).every((content) => !content)}
-          >
-            <Download aria-hidden="true" size={17} />
-            Download ZIP
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={onRegenerate}
-            disabled={isLoading}
-          >
-            <RefreshCw aria-hidden="true" size={17} />
-            Regenerate
-          </button>
-        </div>
+        <CopyButtons
+          currentContent={currentContent}
+          allContent={allContent}
+          canDownload={!Object.values(files).every((content) => !content)}
+          copiedLabel={copiedLabel}
+          isLoading={isLoading}
+          onCopy={copyText}
+          onDownload={() =>
+            downloadMarkdownZip(zipReadyFiles, `${slugify(projectName)}-pack.zip`)
+          }
+          onRegenerate={onRegenerate}
+        />
       </div>
 
       {warnings.length > 0 && (
@@ -117,7 +104,7 @@ export function OutputTabs({
       )}
 
       <div className="tabs" role="tablist" aria-label="Generated files">
-        {EXPECTED_FILES.map((filename) => (
+        {tabs.map((filename) => (
           <button
             key={filename}
             type="button"

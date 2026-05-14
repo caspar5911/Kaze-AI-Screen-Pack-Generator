@@ -10,6 +10,8 @@ export type GeneratedFileName = (typeof EXPECTED_FILES)[number];
 
 export type GeneratedFiles = Partial<Record<GeneratedFileName, string>>;
 
+export type OutputTabName = GeneratedFileName | "Raw Response";
+
 export interface GeneratePackResponse {
   files: GeneratedFiles;
   warnings: string[];
