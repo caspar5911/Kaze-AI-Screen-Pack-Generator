@@ -1,0 +1,27 @@
+export const EXPECTED_FILES = [
+  "pack-manifest.md",
+  "handoff.md",
+  "kaze-component-mapping.md",
+  "cline-implementation-prompt.md",
+  "qa-checklist.md"
+] as const;
+
+export type GeneratedFileName = (typeof EXPECTED_FILES)[number];
+
+export type GeneratedFiles = Partial<Record<GeneratedFileName, string>>;
+
+export interface GeneratePackResponse {
+  files: GeneratedFiles;
+  warnings: string[];
+  rawResponse: string;
+}
+
+export interface PackFormState {
+  projectName: string;
+  shortDescription: string;
+  designSource: string;
+  iconSystem: string;
+  additionalNotes: string;
+  aiEndpointUrl: string;
+  modelName: string;
+}
