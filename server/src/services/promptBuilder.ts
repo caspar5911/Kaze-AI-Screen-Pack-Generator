@@ -480,10 +480,21 @@ Before writing code:
 
 Kaze import rule:
 Correct:
+\`\`\`ts
 import { Button, TextField, Dropdown, Avatar, Typography } from "@pcs-security/kaze-ui-library";
+\`\`\`
 
 Incorrect:
-import { KazeButton, KazeInput, KazeSelect, KazeAvatar, KazeTypography } from "@pcs-security/kaze-ui-library";
+\`\`\`ts
+// WRONG — fake Kaze-prefixed exports do not exist
+import {
+  KazeButton,
+  KazeInput,
+  KazeSelect,
+  KazeAvatar,
+  KazeTypography,
+} from "@pcs-security/kaze-ui-library";
+\`\`\`
 
 Implementation rules:
 - Use confirmed Kaze exports where available.
@@ -584,7 +595,14 @@ export function buildLocalClineImplementationPrompt(params?: {
     "Incorrect:",
     "",
     "```ts",
-    'import { KazeButton, KazeInput, KazeSelect, KazeAvatar, KazeTypography } from "@pcs-security/kaze-ui-library";',
+    "// WRONG — fake Kaze-prefixed exports do not exist",
+    "import {",
+    "  KazeButton,",
+    "  KazeInput,",
+    "  KazeSelect,",
+    "  KazeAvatar,",
+    "  KazeTypography,",
+    '} from "@pcs-security/kaze-ui-library";',
     "```",
     "",
     "## Implementation Rules",
