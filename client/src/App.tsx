@@ -11,9 +11,14 @@ import type {
   AiAssistResponse,
   AiAssistTargetField,
   GeneratePackResponse,
+  GenerationQuality,
+  GeneratedFiles,
   PackFormState,
 } from "./types";
-import { getFilenameWarnings } from "./utils/filenameParser";
+import {
+  getFilenameWarnings,
+  parseScreenshotFilename,
+} from "./utils/filenameParser";
 
 const endpointStorageKey = "kaze-screen-pack-generator.aiEndpointUrl";
 const modelStorageKey = "kaze-screen-pack-generator.modelName";
@@ -63,6 +68,26 @@ export default function App() {
     () => getFilenameWarnings(screenshots),
     [screenshots],
   );
+
+  const parsedFilenames = useMemo(
+    () =>
+      packScreenshots.map((f) => {
+        const parsed = parseScreenshotFilename(f.name);
+        return {
+          filename: f.name,
+          screenName: parsed.screenName || "",
+          state: parsed.state || "",
+          viewport: parsed.viewport || "",
+        };
+      }),
+    [packScreenshots],
+  );
+
+  const allowedFilenames = useMemo(
+    () => packScreenshots.map((f) => f.name),
+    [packScreenshots],
+  );
+
   const canGenerate =
     form.projectName.trim().length > 0 &&
     form.shortDescription.trim().length > 0 &&
@@ -108,7 +133,9 @@ export default function App() {
 
   async function runAiAssist(targetField: AiAssistTargetField) {
     if (screenshots.length === 0) {
-      setAiAssistError("Upload at least one screenshot before using AI assist.");
+      setAiAssistError(
+        "Upload at least one screenshot before using AI assist.",
+      );
       return;
     }
 
@@ -268,6 +295,21 @@ export default function App() {
     }
   }
 
+  // Callback for OutputTabs to update the pack after resolving unknowns
+  function handlePackUpdated(update: {
+    files: GeneratedFiles;
+    warnings: string[];
+    quality: GenerationQuality;
+  }) {
+    if (!response) return;
+    setResponse({
+      ...response,
+      files: update.files,
+      warnings: update.warnings,
+      quality: update.quality,
+    });
+  }
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -356,6 +398,11 @@ export default function App() {
             screenshots={packScreenshots}
             isLoading={isLoading}
             onRegenerate={() => submit()}
+            aiEndpointUrl={form.aiEndpointUrl}
+            modelName={form.modelName}
+            onPackUpdated={handlePackUpdated}
+            allowedFilenames={allowedFilenames}
+            parsedFilenames={parsedFilenames}
           />
         </div>
       </main>

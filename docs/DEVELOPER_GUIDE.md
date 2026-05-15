@@ -48,6 +48,7 @@ Main entry points:
 - `services/promptBuilder.ts`: Builds `pack-input.md` and AI prompt.
 - `services/aiClient.ts`: Calls Ollama or OpenAI-compatible endpoint.
 - `services/aiAssist.ts`: Builds strict AI assist prompts and parses JSON responses.
+- `services/kazeCatalog.ts`: Loads `config/kaze-component-catalog.json` and centralizes confirmed exports, fake-name repairs, role-to-export mapping, and cross-file Kaze validation.
 - `services/responseParser.ts`: Parses, sanitizes, validates, and scores AI output.
 - `services/modelDiscovery.ts`: Lists available models for supported endpoint styles.
 - `utils/filenameParser.ts`: Screenshot filename parsing and image extension checks.

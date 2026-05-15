@@ -2,6 +2,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FileMapEntry } from "./fileMap.js";
+import {
+  getComponentGalleryExports,
+  getConfirmedKazeExports,
+  getForbiddenFakeNames,
+  getKazeCatalog,
+  getPrimaryForbiddenFakeNames,
+  getUtilityKazeExports,
+  getVisualKazeExports,
+} from "./kazeCatalog.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,6 +34,24 @@ const AI_ASSISTANT_HOME_VISIBLE_ACTIONS = [
   "Select quick actions: Create an image, Write or edit, Look something up.",
   "Use sidebar navigation icons.",
   "Use the avatar/profile area.",
+];
+const COMPONENT_GALLERY_VISIBLE_ACTIONS = [
+  "Review component groups.",
+  "Compare visual component examples.",
+  "Identify matching Kaze exports for screenshot-to-code generation.",
+  "Verify utility exports such as `notification` and `useNotification`.",
+];
+const COMPONENT_GALLERY_UNKNOWNS = [
+  "Exact interactive behaviour for each sample component is not confirmed.",
+  "Component props and variants should be verified against the installed Kaze package typings or Storybook.",
+  "Utility exports such as `notification` and `useNotification` should only be used when notification behaviour is required.",
+  "Layout wrappers/cards are not confirmed Kaze exports unless package typings prove they exist.",
+];
+const GENERIC_MANIFEST_UNKNOWNS = [
+  "Exact interaction behaviour for visible controls is not confirmed.",
+  "Responsive mobile/tablet layouts are not provided unless matching screenshots are uploaded.",
+  "Kaze component props and variants should be verified against the installed package typings or Storybook.",
+  "Routes, APIs, permissions, and persistence behaviour are not provided.",
 ];
 const PACK_CONTENT_FILES = [
   "README_FOR_CLINE.md",
@@ -50,20 +77,19 @@ export async function loadKazeComponentCatalog(): Promise<string> {
 }
 
 export async function loadCompactCatalogJson(): Promise<string> {
-  const raw = await fs.readFile(catalogJsonPath, "utf8");
-  const catalog = JSON.parse(raw) as {
-    confirmedExports: string[];
-    patternMappings: Record<string, string[]>;
-    unconfirmedPatterns: string[];
-    forbiddenFakeNames: string[];
-    wrongNameRepairs: Record<string, string>;
-  };
+  await fs.access(catalogJsonPath);
+  const catalog = getKazeCatalog();
   return JSON.stringify({
     confirmedExports: catalog.confirmedExports,
+    exportGroups: catalog.exportGroups,
+    componentDetectionRules: catalog.componentDetectionRules,
     patternMappings: catalog.patternMappings,
+    mandatoryMappingRules: catalog.mandatoryMappingRules,
     unconfirmedPatterns: catalog.unconfirmedPatterns,
     forbiddenFakeNames: catalog.forbiddenFakeNames,
     wrongNameRepairs: catalog.wrongNameRepairs,
+    validatorRules: catalog.validatorRules,
+    automaticFailConditions: catalog.automaticFailConditions,
   });
 }
 
@@ -129,25 +155,33 @@ export function buildLocalPackManifestMarkdown(
   });
 
   const screenSections = [...groupedEntries.entries()].flatMap(
-    ([screenName, entries]) => [
-      `### ${screenName}`,
-      "",
-      "Purpose:",
-      `${screenName} screen for ${fields.projectName}. Use the screenshot references and handoff file for detailed visual interpretation.`,
-      "",
-      "Screenshots:",
-      ...entries.flatMap((entry) => [
-        `- \`screenshots/${entry.filename}\``,
-        `  - State: \`${entry.parsed.state ?? "Unknown"}\``,
-        `  - Viewport: \`${entry.parsed.viewport ?? "Unknown"}\``,
-      ]),
-      "",
-      "Main Visible Actions:",
-      ...buildLocalManifestVisibleActions(fields, screenName).map(
-        (action) => `- ${action}`,
-      ),
-      "",
-    ],
+    ([screenName, entries]) => {
+      const displayScreenName = getManifestScreenTitle(
+        fields,
+        screenName,
+        entries,
+      );
+
+      return [
+        `### ${displayScreenName}`,
+        "",
+        "Purpose:",
+        getManifestScreenPurpose(fields, displayScreenName, entries),
+        "",
+        "Screenshots:",
+        ...entries.flatMap((entry) => [
+          `- \`screenshots/${entry.filename}\``,
+          `  - State: \`${entry.parsed.state ?? "Unknown"}\``,
+          `  - Viewport: \`${entry.parsed.viewport ?? "Unknown"}\``,
+        ]),
+        "",
+        "Main Visible Actions:",
+        ...buildLocalManifestVisibleActions(fields, screenName, entries).map(
+          (action) => `- ${action}`,
+        ),
+        "",
+      ];
+    },
   );
 
   return [
@@ -170,12 +204,9 @@ export function buildLocalPackManifestMarkdown(
     "",
     ...screenSections,
     "## Unknowns / Needs Confirmation",
-    "- Navigation behaviour is not confirmed.",
-    "- Avatar interaction is not confirmed.",
-    "- Thinking selector options are not visible.",
-    "- White circular action button behaviour is not confirmed.",
-    "- Quick action behaviours are not confirmed.",
-    "- Voice input behaviour is not confirmed.",
+    ...buildLocalManifestUnknowns(fields, fileMapEntries).map(
+      (unknown) => `- ${unknown}`,
+    ),
   ].join("\n");
 }
 
@@ -271,9 +302,9 @@ export function buildHandoffMappingPrompt(params: {
   // Stage 2: Use compact catalog JSON, not full docs.
   const catalog = JSON.parse(params.compactCatalog);
   const packContext = buildCompactPackContext(params.packInputMarkdown);
-  const confirmedExports = catalog.confirmedExports.join(", ");
-  const forbiddenFakeNames = catalog.forbiddenFakeNames.join(", ");
-  const unconfirmedPatterns = catalog.unconfirmedPatterns.join(", ");
+  const confirmedExports = getConfirmedKazeExports().join(", ");
+  const forbiddenFakeNames = getForbiddenFakeNames().join(", ");
+  const unconfirmedPatterns = (catalog.unconfirmedPatterns ?? []).join(", ");
 
   return `You are a Kaze UI Handoff and Component Mapping Generator.
 
@@ -287,8 +318,19 @@ Kaze export rules:
 - Allowed exact exports: ${confirmedExports}
 - Forbidden fake names: ${forbiddenFakeNames}
 - Unconfirmed patterns: ${unconfirmedPatterns}
+- Use componentDetectionRules, patternMappings, and mandatoryMappingRules from the catalog as source of truth.
+- List visible UI elements and generic visual roles first.
+- Do not invent Kaze component names.
+- If a visual role matches the catalog mapping dictionary, use the exact confirmed Kaze export.
 
 For unconfirmed patterns, output: Unknown / verify from Kaze
+
+Unknown cell fallback rule:
+- When a Kaze export is marked as "Unknown / verify from Kaze", the Notes column MUST include a concrete fallback specification.
+- Example: "Use standard HTML <div> with project CSS classes as fallback."
+- Example: "Implement with raw HTML <button> until Kaze pattern is verified."
+- Example: "Use native <select> with inline styles as fallback."
+- This allows developers to implement the UI with standard HTML while the Kaze export is pending verification.
 
 Quick action mapping rule:
 - For clickable quick action buttons, prefer Exact Kaze Export: Button.
@@ -315,24 +357,75 @@ handoff.md must be concise and include: Overview, Screenshots, Visible layout, M
 - Do not repeat the manifest.
 - Do not describe implementation steps.
 
-kaze-component-mapping.md must be concise and include: Source files, Rule section, Screen mapping table, Icon table, Confidence levels.
+kaze-component-mapping.md must be concise and include: Source files, Import Rule, Confirmed Kaze Exports Used, Forbidden Fake Names, Fallback Rule, Screen mapping table, Icon table, Confidence levels.
 - Only include mapping rows for visible UI elements.
-- Keep the whole file under roughly 40 lines.
 - Keep notes short.
 - Do not add speculative rows for unseen behaviours.
 - State that Button, TextField, and Dropdown are real unprefixed exports.
 - State that fake Kaze-prefixed names such as KazeButton, KazeInput, KazeSelect, KazeAvatar, and KazeTypography are wrong.
-- Include the correct import example: import { Button, TextField, Dropdown } from "@pcs-security/kaze-ui-library";
+- Include the correct import example using Button, TextField, Dropdown, Avatar, and Typography.
+- Include the wrong fake-prefixed import example and clearly mark it WRONG.
 - Never list Button, TextField, Dropdown, Avatar, or Typography under Forbidden Names.
 - If you include a Forbidden Names line, it must only forbid fake Kaze-prefixed names such as KazeButton, KazeInput, KazeSelect, KazeAvatar, and KazeTypography.
 
 Mapping table columns:
 | UI Element | Intended Kaze Pattern | Exact Kaze Export | Confidence | Notes |
 
+Visual Element To Kaze Component Mapping (strict mapping dictionary):
+
+If screenshot shows this → Use this Kaze component:
+- circular profile image / user profile photo / account image / round image with initials / profile icon / user icon in header → Avatar
+- clickable action / primary button / secondary button / icon button / quick action button / card-like action button / submit action → Button
+- text input / single-line input / search bar / prompt input / input with placeholder → TextField
+- large multi-line text box / notes field / comment box / long prompt box → TextArea
+- dropdown field / select field / option picker / field with down arrow → Dropdown
+- checkbox / square tick box / boolean option → Checkbox
+- toggle switch → Toggle
+- radio option → Radio
+- radio group → RadioGroup
+- tabs / tab navigation → Tabs
+- table / rows and columns / simple data table → Table
+- complex enterprise grid / sortable/filterable data grid → AgGridTable
+- popup dialog / confirmation dialog / overlay dialog → Modal
+- small count bubble / notification count → Badge
+- status label / category pill / small metadata chip → Tag
+- alert message / warning banner / success/error/info message → Alert
+- tooltip hint / hover hint → Tooltip
+- progress bar → Progress
+- stepper → Steps
+- breadcrumb navigation → Breadcrumb
+- pagination control → Pagination
+- file upload area → Upload
+- date input → Datepicker
+- time input → Timepicker
+- heading text / title text / paragraph text / label text / caption text → Typography
+
+If unsure between TextField and TextArea:
+- Use TextField for single-line input.
+- Use TextArea for large or multi-line input.
+
+If unsure between Table and AgGridTable:
+- Use Table for simple rows and columns.
+- Use AgGridTable for complex enterprise grids with sorting, filtering, many columns, or admin data.
+
+If unsure between Tag and Badge:
+- Use Badge for small numbers/counts.
+- Use Tag for labels/categories/status pills.
+
+Hard rules for Kaze component detection:
+1. Every visible UI element must map to one Kaze component if a matching Kaze component exists.
+2. Do not describe visual elements only in generic words. Always include the Kaze component name.
+3. If visual evidence matches the mapping dictionary above, the Kaze component is mandatory.
+4. Do not call an avatar a generic "profile control" only — if the screenshot has a profile image, you must mention Avatar.
+5. Do not call a button a generic "action control" only — if the screenshot has a clickable action, you must mention Button.
+6. Do not call an input a generic "prompt area" only — if the screenshot has a text input, you must mention TextField or TextArea.
+
 Icon table examples:
 | Microphone Button | Button / icon button | Button | High | Use Font Awesome microphone icon if project setup supports it. |
 | Quick Action Buttons | Button / rounded action button | Button | Medium | Use rounded/button variant if supported; verify existing project pattern. |
 | Sidebar Icon Buttons | Navigation / icon button pattern | Unknown / verify from Kaze | Low | Verify existing project sidebar/navigation pattern. |
+
+CRITICAL: Never output bare "Unknown" by itself. Always write "Unknown / verify from Kaze" as a single token. If you are unsure about a Kaze component, use "Unknown / verify from Kaze" - never just "Unknown". This applies to ALL mapping table cells and ALL notes fields.
 
 Output rules:
 - Output only the two file sections. No reasoning, analysis, citations, or commentary.
@@ -451,7 +544,15 @@ KAZE COMPONENT MAPPING:
 ${params.kazeComponentMappingMarkdown}`;
 }
 
-export function buildLocalClineImplementationPrompt(): string {
+export function buildLocalClineImplementationPrompt(params?: {
+  fields?: PackInputFields;
+  fileMapEntries?: FileMapEntry[];
+  screenFolderName?: string;
+}): string {
+  const screenFolderName =
+    params?.screenFolderName ??
+    buildScreenFolderName(params?.fields, params?.fileMapEntries ?? []);
+
   return [
     "# Cline Implementation Prompt",
     "",
@@ -512,14 +613,18 @@ export function buildLocalClineImplementationPrompt(): string {
     "",
     "Before creating files, inspect the actual project structure.",
     "",
+    "Use the generated screen folder name:",
+    "",
+    `\`${screenFolderName}\``,
+    "",
     "Place the screen in the closest existing page or screen directory pattern.",
     "",
     "Priority:",
     "",
-    "1. If the project has `src/pages/`, create `src/pages/AIAssistantHomeScreen/`.",
-    "2. If the project has `src/screens/`, create `src/screens/AIAssistantHomeScreen/`.",
+    `1. If the project has \`src/pages/\`, create \`src/pages/${screenFolderName}/\`.`,
+    `2. If the project has \`src/screens/\`, create \`src/screens/${screenFolderName}/\`.`,
     "3. If the project has `src/features/`, create it under the closest relevant feature folder.",
-    "4. If none of these exist, create `src/pages/AIAssistantHomeScreen/`.",
+    `4. If none of these exist, create \`src/pages/${screenFolderName}/\`.`,
     "",
     "Do not register a route unless:",
     "- the project already has an obvious route registration pattern, and",
@@ -659,16 +764,46 @@ export function buildLocalClineImplementationPrompt(): string {
   ].join("\n");
 }
 
+function getManifestScreenTitle(
+  fields: PackInputFields,
+  screenName: string,
+  entries: FileMapEntry[],
+): string {
+  if (isComponentGalleryContext(fields, screenName, entries)) {
+    return "Kaze Component Gallery";
+  }
+
+  return screenName;
+}
+
+function getManifestScreenPurpose(
+  fields: PackInputFields,
+  displayScreenName: string,
+  entries: FileMapEntry[],
+): string {
+  if (isComponentGalleryContext(fields, displayScreenName, entries)) {
+    return "Reference gallery for reviewing available Kaze UI components and their intended usage in screen generation.";
+  }
+
+  return `${displayScreenName} screen for ${fields.projectName}. Use the screenshot references and handoff file for detailed visual interpretation.`;
+}
+
 function buildLocalManifestVisibleActions(
   fields: PackInputFields,
   screenName: string,
+  entries: FileMapEntry[] = [],
 ): string[] {
-  const context = `${fields.projectName} ${fields.shortDescription} ${screenName}`;
+  const context = `${fields.projectName} ${fields.shortDescription} ${screenName} ${entries.map((entry) => entry.filename).join(" ")}`;
+
+  if (isComponentGalleryContext(fields, screenName, entries)) {
+    return COMPONENT_GALLERY_VISIBLE_ACTIONS;
+  }
 
   if (
-    /\bAI\b|assistant|prompt|thinking|microphone|voice|quick actions?/i.test(
+    /assistant|prompt input|thinking selector|microphone|voice input|quick actions?/i.test(
       context,
-    )
+    ) &&
+    !isComponentGalleryContext(fields, screenName, entries)
   ) {
     return AI_ASSISTANT_HOME_VISIBLE_ACTIONS;
   }
@@ -678,6 +813,93 @@ function buildLocalManifestVisibleActions(
     "Use visible navigation or menu controls shown in the screenshot.",
     "Use visible profile/account controls shown in the screenshot.",
   ];
+}
+
+function buildLocalManifestUnknowns(
+  fields: PackInputFields,
+  entries: FileMapEntry[],
+): string[] {
+  if (isComponentGalleryContext(fields, "", entries)) {
+    return COMPONENT_GALLERY_UNKNOWNS;
+  }
+
+  if (
+    entries.some((entry) =>
+      /homegreeting|assistant|prompt|thinking/i.test(
+        `${entry.filename} ${entry.parsed.screenName ?? ""}`,
+      ),
+    ) ||
+    /assistant|prompt input|thinking selector|microphone|voice input/i.test(
+      `${fields.projectName} ${fields.shortDescription}`,
+    )
+  ) {
+    return [
+      "Navigation behaviour is not confirmed.",
+      "Avatar interaction is not confirmed.",
+      "Thinking selector options are not visible.",
+      "White circular action button behaviour is not confirmed.",
+      "Quick action behaviours are not confirmed.",
+      "Voice input behaviour is not confirmed.",
+    ];
+  }
+
+  return GENERIC_MANIFEST_UNKNOWNS;
+}
+
+function isComponentGalleryContext(
+  fields: PackInputFields,
+  screenName: string,
+  entries: FileMapEntry[] = [],
+): boolean {
+  const context = [
+    fields.projectName,
+    fields.shortDescription,
+    screenName,
+    ...entries.map((entry) => `${entry.filename} ${entry.parsed.screenName ?? ""}`),
+  ].join(" ");
+
+  return /component\s*gallery|components\s*gallery|kaze\s*component|kaze\s*ui\s*components/i.test(
+    context,
+  );
+}
+
+export function buildScreenFolderName(
+  fields?: PackInputFields,
+  entries: FileMapEntry[] = [],
+): string {
+  const fallbackFields = fields ?? {
+    projectName: "",
+    shortDescription: "",
+    designSource: "",
+    iconSystem: "",
+    additionalNotes: "",
+  };
+
+  if (isComponentGalleryContext(fallbackFields, "", entries)) {
+    return "UIComponentsGallery";
+  }
+
+  const source =
+    fallbackFields.projectName.trim() ||
+    entries[0]?.parsed.screenName?.trim() ||
+    entries[0]?.filename.replace(/\.[^.]+$/, "") ||
+    "GeneratedScreen";
+
+  return toPascalIdentifier(source) || "GeneratedScreen";
+}
+
+function toPascalIdentifier(value: string): string {
+  const words = value.match(/[A-Za-z0-9]+/g) ?? [];
+
+  return words
+    .map((word) => {
+      if (/^[A-Z0-9]+$/.test(word)) {
+        return word;
+      }
+
+      return `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
+    })
+    .join("");
 }
 
 export function buildLocalQaChecklist(): string {
@@ -697,7 +919,8 @@ export function buildLocalQaChecklist(): string {
     "",
     "## 2. Kaze Usage",
     "- [ ] Uses only real `@pcs-security/kaze-ui-library` exports.",
-    "- [ ] Does not use fake Kaze-prefixed components.",
+    "- [ ] Allows valid unprefixed exports such as `Button`, `TextField`, `Dropdown`, `Avatar`, and `Typography`.",
+    "- [ ] Does not use fake Kaze-prefixed components such as `KazeButton`, `KazeInput`, `KazeSelect`, `KazeAvatar`, or `KazeTypography`.",
     "- [ ] Does not import `KazeButton`.",
     "- [ ] Does not import `KazeInput`.",
     "- [ ] Does not import `KazeSelect`.",
@@ -708,9 +931,9 @@ export function buildLocalQaChecklist(): string {
     "",
     "## 3. Visual",
     "- [ ] Layout matches screenshot.",
-    "- [ ] Main greeting area matches screenshot.",
-    "- [ ] Input area matches screenshot.",
-    "- [ ] Action buttons/cards match screenshot.",
+    "- [ ] Primary screen content matches screenshot.",
+    "- [ ] Visible controls match screenshot.",
+    "- [ ] Action buttons, panels, and component examples match screenshot.",
     "- [ ] Spacing is close to screenshot.",
     "- [ ] Typography hierarchy is close to screenshot.",
     "- [ ] Responsive behaviour does not break the layout.",

@@ -1,12 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
+import { Loader2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { downloadClineReadyZip } from "../utils/downloadZip";
 import {
   EXPECTED_FILES,
   type GeneratedFiles,
   type GenerationQuality,
-  type OutputTabName
+  type OutputTabName,
 } from "../types";
 import { CopyButtons } from "./CopyButtons";
+import {
+  filesToBase64Images,
+  resolveUnknowns,
+  validatePack,
+  type ResolvedCell,
+  type ValidatePackResponse,
+} from "../api/generatePack";
+
+interface ParsedFilename {
+  filename: string;
+  screenName: string;
+  state: string;
+  viewport: string;
+}
 
 interface OutputTabsProps {
   files: GeneratedFiles;
@@ -17,6 +32,15 @@ interface OutputTabsProps {
   screenshots: File[];
   onRegenerate: () => void;
   isLoading: boolean;
+  aiEndpointUrl: string;
+  modelName: string;
+  onPackUpdated?: (update: {
+    files: GeneratedFiles;
+    warnings: string[];
+    quality: GenerationQuality;
+  }) => void;
+  allowedFilenames: string[];
+  parsedFilenames: ParsedFilename[];
 }
 
 export function OutputTabs({
@@ -27,19 +51,160 @@ export function OutputTabs({
   projectName,
   screenshots,
   onRegenerate,
-  isLoading
+  isLoading,
+  aiEndpointUrl,
+  modelName,
+  onPackUpdated,
+  allowedFilenames,
+  parsedFilenames,
 }: OutputTabsProps) {
+  const [resolvingUnknowns, setResolvingUnknowns] = useState(false);
+  const [resolveError, setResolveError] = useState("");
+  const [resolvedCount, setResolvedCount] = useState(0);
+  const [revalidating, setRevalidating] = useState(false);
+
+  const hasUnknownCells = useMemo(() => {
+    const mapping = files["kaze-component-mapping.md"];
+    if (!mapping) return false;
+    return /Unknown\s*\/\s*verify from Kaze/.test(mapping);
+  }, [files]);
+
+  const canResolve =
+    hasUnknownCells &&
+    aiEndpointUrl.trim().length > 0 &&
+    modelName.trim().length > 0;
+
+  const handleResolveUnknowns = useCallback(async () => {
+    if (!canResolve) return;
+    setResolvingUnknowns(true);
+    setResolveError("");
+    setResolvedCount(0);
+
+    try {
+      const base64Images = await filesToBase64Images(screenshots);
+
+      const result = await resolveUnknowns({
+        aiEndpointUrl: aiEndpointUrl.trim(),
+        modelName: modelName.trim(),
+        kazeComponentMapping: files["kaze-component-mapping.md"] ?? "",
+        screenshots: base64Images,
+        fastMode: false,
+      });
+
+      if (result.success && result.resolved.length > 0) {
+        setResolvedCount(result.resolved.length);
+        const updatedMapping = replaceUnknownsWithResolved(
+          files["kaze-component-mapping.md"] ?? "",
+          result.resolved,
+        );
+
+        const updatedFiles = {
+          ...files,
+          "kaze-component-mapping.md": updatedMapping,
+        };
+
+        // Re-validate the pack after resolving
+        setRevalidating(true);
+        try {
+          const validationResult: ValidatePackResponse = await validatePack({
+            files: updatedFiles,
+            allowedFilenames,
+            parsedFilenames,
+          });
+
+          if (onPackUpdated) {
+            onPackUpdated({
+              files: updatedFiles,
+              warnings: validationResult.warnings,
+              quality: validationResult.quality,
+            });
+          }
+        } catch (err) {
+          if (onPackUpdated) {
+            onPackUpdated({
+              files: updatedFiles,
+              warnings: ["Re-validation failed"],
+              quality,
+            });
+          }
+        } finally {
+          setRevalidating(false);
+        }
+      }
+
+      if (result.failed && result.failed.length > 0) {
+        setResolveError(
+          `${result.failed.length} element(s) could not be resolved: ${result.failed.join(", ")}`,
+        );
+      }
+
+      if (!result.success) {
+        setResolveError(result.error || "AI resolution failed.");
+      }
+    } catch (err) {
+      setResolveError(
+        err instanceof Error ? err.message : "Resolve unknowns failed.",
+      );
+    } finally {
+      setResolvingUnknowns(false);
+    }
+  }, [
+    canResolve,
+    aiEndpointUrl,
+    modelName,
+    screenshots,
+    files,
+    allowedFilenames,
+    parsedFilenames,
+    onPackUpdated,
+    quality,
+  ]);
+
+  function replaceUnknownsWithResolved(
+    mapping: string,
+    resolved: ResolvedCell[],
+  ): string {
+    let updated = mapping;
+    for (const r of resolved) {
+      // Match any table row where the UI Element column matches the resolved element
+      // and the Exact Kaze Export column is "Unknown / verify from Kaze"
+      const lines = updated.split("\n");
+      const result = lines.map((line) => {
+        const cells = parseTableRow(line);
+        if (!cells || cells.length < 5) return line;
+        if (
+          cells[0].trim() === r.uiElement.trim() &&
+          /Unknown\s*\/\s*verify from Kaze/i.test(cells[2]?.trim() ?? "")
+        ) {
+          return `| ${r.uiElement} | ${cells[1]} | ${r.resolvedExport} | ${cells[3]} | ${cells[4] ?? ""} |`;
+        }
+        return line;
+      });
+      updated = result.join("\n");
+    }
+    return updated;
+  }
+
+  function parseTableRow(line: string): string[] | null {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) return null;
+    return trimmed
+      .slice(1, -1)
+      .split("|")
+      .map((c) => c.trim());
+  }
+
   const [activeFile, setActiveFile] = useState<OutputTabName>(
-    EXPECTED_FILES[0]
+    EXPECTED_FILES[0],
   );
   const [copiedLabel, setCopiedLabel] = useState("");
   const [downloadError, setDownloadError] = useState("");
   const tabs = useMemo<OutputTabName[]>(
     () => [...EXPECTED_FILES, "Raw Response"],
-    []
+    [],
   );
   const hasParseWarning = warnings.some((warning) =>
-    warning.toLowerCase().includes("could not parse all expected files")
+    warning.toLowerCase().includes("could not parse all expected files"),
   );
 
   useEffect(() => {
@@ -49,17 +214,17 @@ export function OutputTabs({
   }, [hasParseWarning]);
 
   const currentContent =
-    activeFile === "Raw Response" ? rawResponse : files[activeFile] ?? "";
-  const allContent = useMemo(() => formatAllFiles(files, rawResponse), [
-    files,
-    rawResponse
-  ]);
+    activeFile === "Raw Response" ? rawResponse : (files[activeFile] ?? "");
+  const allContent = useMemo(
+    () => formatAllFiles(files, rawResponse),
+    [files, rawResponse],
+  );
   const zipReadyFiles = useMemo(
     () =>
       Object.fromEntries(
-        EXPECTED_FILES.map((filename) => [filename, files[filename] ?? ""])
+        EXPECTED_FILES.map((filename) => [filename, files[filename] ?? ""]),
       ),
-    [files]
+    [files],
   );
 
   useEffect(() => {
@@ -72,8 +237,17 @@ export function OutputTabs({
     window.setTimeout(() => setCopiedLabel(""), 1800);
   }
 
+  const isQualityReady = quality.status === "ready";
+
   async function downloadZip() {
     setDownloadError("");
+
+    if (!isQualityReady) {
+      setDownloadError(
+        "Pack validation failed. Fix issues before downloading ZIP.",
+      );
+      return;
+    }
 
     try {
       await downloadClineReadyZip({
@@ -104,7 +278,8 @@ export function OutputTabs({
           )}
           {warnings.length > 0 && (
             <p className="output-warning">
-              {warnings.length} warning{warnings.length === 1 ? "" : "s"} need review.
+              {warnings.length} warning{warnings.length === 1 ? "" : "s"} need
+              review.
             </p>
           )}
         </div>
@@ -112,7 +287,9 @@ export function OutputTabs({
         <CopyButtons
           currentContent={currentContent}
           allContent={allContent}
-          canDownload={!Object.values(files).every((content) => !content)}
+          canDownload={
+            isQualityReady && !Object.values(files).every((content) => !content)
+          }
           copiedLabel={copiedLabel}
           isLoading={isLoading}
           onCopy={copyText}
@@ -130,6 +307,37 @@ export function OutputTabs({
               <li key={warning}>{warning}</li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {hasUnknownCells && (
+        <div className="resolve-unknowns-section">
+          {resolvedCount > 0 && (
+            <div className="resolve-success">
+              ✓ Resolved {resolvedCount} unknown component(s)
+            </div>
+          )}
+          {resolveError && <div className="resolve-error">{resolveError}</div>}
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={
+              resolvingUnknowns || revalidating || !aiEndpointUrl || !modelName
+            }
+            onClick={handleResolveUnknowns}
+          >
+            {resolvingUnknowns || revalidating ? (
+              <>
+                <Loader2 className="spin" aria-hidden="true" size={16} />
+                {revalidating ? "Re-validating..." : "Resolving..."}
+              </>
+            ) : (
+              "Resolve Unknowns"
+            )}
+          </button>
+          <span className="resolve-hint">
+            Use AI to identify closest Kaze exports for "Unknown" components
+          </span>
         </div>
       )}
 

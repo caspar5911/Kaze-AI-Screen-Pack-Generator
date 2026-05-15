@@ -11,6 +11,8 @@ import { fileURLToPath } from "node:url";
 import { aiAssistRouter } from "./routes/aiAssist.js";
 import { generatePackRouter } from "./routes/generatePack.js";
 import { modelsRouter } from "./routes/models.js";
+import { resolveUnknownsRouter } from "./routes/resolveUnknowns.js";
+import { validatePackRouter } from "./routes/validatePack.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,6 +25,8 @@ app.use(cors());
 app.use("/api", aiAssistRouter);
 app.use("/api", generatePackRouter);
 app.use("/api", modelsRouter);
+app.use("/api", resolveUnknownsRouter);
+app.use("/api", validatePackRouter);
 
 if (fs.existsSync(clientDist)) {
   app.use(express.static(clientDist));

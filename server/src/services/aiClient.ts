@@ -4,6 +4,7 @@ import sharp from "sharp";
 export interface AiScreenshot {
   path: string;
   mimetype: string;
+  isBase64?: boolean;
 }
 
 export interface AiClientParams {
@@ -60,20 +61,21 @@ export async function callAiEndpoint(params: AiClientParams): Promise<string> {
       compressAndReadAsBase64(screenshot, params.fastMode),
     ),
   );
-  const payload = endpointMode === "ollama"
-    ? buildOllamaPayload(
-        params.modelName,
-        params.prompt,
-        images,
-        params.systemPrompt,
-      )
-    : buildOpenAiCompatiblePayload(
-        params.modelName,
-        params.systemPrompt,
-        params.prompt,
-        params.screenshots,
-        images,
-      );
+  const payload =
+    endpointMode === "ollama"
+      ? buildOllamaPayload(
+          params.modelName,
+          params.prompt,
+          images,
+          params.systemPrompt,
+        )
+      : buildOpenAiCompatiblePayload(
+          params.modelName,
+          params.systemPrompt,
+          params.prompt,
+          params.screenshots,
+          images,
+        );
 
   // Log prompt size for monitoring
   const promptChars = params.prompt.length;
@@ -129,6 +131,11 @@ async function compressAndReadAsBase64(
   screenshot: AiScreenshot,
   fastMode?: boolean,
 ): Promise<string> {
+  // If the screenshot is already base64, skip file I/O
+  if (screenshot.isBase64) {
+    return screenshot.path;
+  }
+
   const buffer = await fs.readFile(screenshot.path);
 
   // Skip compression for very small images

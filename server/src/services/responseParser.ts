@@ -1,3 +1,12 @@
+import {
+  getConfirmedKazeExports,
+  getForbiddenFakeNames,
+  getPrimaryForbiddenFakeNames,
+  getVisualKazeExports,
+  repairFakeKazeName as repairFakeKazeNameFromCatalog,
+  validateKazeMappingContent,
+  VALID_EXPORTS_THAT_MUST_NOT_BE_FORBIDDEN,
+} from "./kazeCatalog.js";
 import { EXPECTED_FILE_NAMES } from "./responseParserConstants.js";
 
 export type GeneratedFileName = (typeof EXPECTED_FILE_NAMES)[number];
@@ -29,6 +38,15 @@ interface FinalValidationResult {
   warnings: string[];
   failureIssues: string[];
   reviewIssues: string[];
+}
+
+interface FinalValidationParams {
+  text: string;
+  files: Partial<Record<GeneratedFileName, string>>;
+  allowedFilenames: string[];
+  parsedFilenames: ParsedFilenameContext[];
+  expectedFileNames: readonly GeneratedFileName[];
+  validationLabel: string;
 }
 
 const CRITICAL_FIRST_STEP_SECTION = [
@@ -83,53 +101,8 @@ const WRONG_KAZE_NAME_REPAIRS: Record<string, string> = {
   KazeDatePicker: "Datepicker",
 };
 
-const CONFIRMED_KAZE_EXPORTS = new Set([
-  "AgGridTable",
-  "Alert",
-  "Avatar",
-  "Badge",
-  "Breadcrumb",
-  "Button",
-  "Checkbox",
-  "CheckboxDropdown",
-  "Collapse",
-  "ContextMenu",
-  "Datepicker",
-  "Dropdown",
-  "Lozenge",
-  "Modal",
-  "Notification",
-  "Pagination",
-  "Pills",
-  "Progress",
-  "Radio",
-  "RadioGroup",
-  "Segmented",
-  "Slider",
-  "Steps",
-  "Swatch",
-  "Table",
-  "Tabs",
-  "Tag",
-  "TextArea",
-  "TextField",
-  "Timepicker",
-  "Toast",
-  "Toggle",
-  "Tooltip",
-  "Typography",
-  "Upload",
-  "notification",
-  "useNotification",
-]);
-
-const CORE_KAZE_EXPORTS_THAT_MUST_NOT_BE_FORBIDDEN = [
-  "Button",
-  "TextField",
-  "Dropdown",
-  "Avatar",
-  "Typography",
-];
+const CORE_KAZE_EXPORTS_THAT_MUST_NOT_BE_FORBIDDEN =
+  VALID_EXPORTS_THAT_MUST_NOT_BE_FORBIDDEN;
 
 const FAKE_KAZE_PREFIXED_EXPORT_WARNING =
   "Do NOT use fake Kaze-prefixed names such as `KazeButton`, `KazeInput`, `KazeSelect`, `KazeAvatar`, or `KazeTypography`.";
@@ -218,9 +191,13 @@ export function parseAllGeneratedFiles(params: {
   kazeComponentCatalog: string;
   parsedFilenames?: ParsedFilenameContext[];
 }): ParsedAiResponse {
+  const reasoningStrippedFiles = stripReasoningBlocksFromFiles(params.files);
   const sanitizedFiles = sanitizeParsedFiles(
     replaceUnconfirmedKazeComponentsInFiles(
-      replaceInventedFilenamesInFiles(params.files, params.allowedFilenames),
+      replaceInventedFilenamesInFiles(
+        reasoningStrippedFiles,
+        params.allowedFilenames,
+      ),
       params.kazeComponentCatalog,
     ),
     params.kazeComponentCatalog,
@@ -230,6 +207,8 @@ export function parseAllGeneratedFiles(params: {
     files: sanitizedFiles,
     allowedFilenames: params.allowedFilenames,
     parsedFilenames: params.parsedFilenames ?? [],
+    expectedFileNames: EXPECTED_FILE_NAMES,
+    validationLabel: "final",
   });
   const missingFiles = EXPECTED_FILE_NAMES.filter(
     (filename) => !sanitizedFiles[filename],
@@ -293,7 +272,7 @@ function parseGeneratedResponse(params: {
     params.allowedFilenames,
   );
 
-  const files = parseFiles(filenameSanitized.text);
+  const files = stripReasoningBlocksFromFiles(parseFiles(filenameSanitized.text));
   const sanitizedFiles = sanitizeParsedFiles(
     files,
     params.kazeComponentCatalog,
@@ -302,10 +281,12 @@ function parseGeneratedResponse(params: {
     (filename) => !sanitizedFiles[filename],
   );
   const finalValidation = validateFinalOutput({
-    text: filenameSanitized.text,
+    text: Object.values(sanitizedFiles).filter(Boolean).join("\n\n"),
     files: sanitizedFiles,
     allowedFilenames: params.allowedFilenames,
     parsedFilenames: params.parsedFilenames ?? [],
+    expectedFileNames: params.expectedFileNames,
+    validationLabel: getValidationLabel(params.expectedFileNames),
   });
 
   warnings.push(...finalValidation.warnings);
@@ -340,15 +321,66 @@ function stripReasoningBlocks(text: string): {
   text: string;
   changed: boolean;
 } {
-  const stripped = text
-    .replace(/<details\b[^>]*>[\s\S]*?<\/details>/gi, "")
-    .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, "")
-    .replace(/<thinking\b[^>]*>[\s\S]*?<\/thinking>/gi, "")
+  const stripped = ["details", "think", "thinking"]
+    .reduce((currentText, tagName) => stripTaggedReasoningBlocks(currentText, tagName), text)
     .trim();
   return {
     text: stripped,
     changed: stripped !== text.trim(),
   };
+}
+
+function stripTaggedReasoningBlocks(text: string, tagName: string): string {
+  const escapedTagName = escapeRegExp(tagName);
+  let stripped = text;
+  const openTagPattern = new RegExp(`<${escapedTagName}\\b[^>]*>`, "i");
+
+  while (true) {
+    const openMatch = openTagPattern.exec(stripped);
+    if (!openMatch) {
+      break;
+    }
+
+    const contentStart = openMatch.index + openMatch[0].length;
+    const closePattern = new RegExp(`</${escapedTagName}>`, "i");
+    const closeMatch = closePattern.exec(stripped.slice(contentStart));
+    const nextFileMarkerIndex = findNextFileMarkerIndex(stripped, contentStart);
+    const closeIndex = closeMatch
+      ? contentStart + closeMatch.index
+      : -1;
+    const closeEndIndex =
+      closeIndex >= 0 && closeMatch
+        ? closeIndex + closeMatch[0].length
+        : -1;
+    const removalEnd =
+      closeEndIndex >= 0 &&
+      (nextFileMarkerIndex === -1 || closeIndex < nextFileMarkerIndex)
+        ? closeEndIndex
+        : nextFileMarkerIndex === -1
+          ? stripped.length
+          : nextFileMarkerIndex;
+
+    stripped = `${stripped.slice(0, openMatch.index)}${stripped.slice(removalEnd)}`;
+  }
+
+  return stripped.replace(new RegExp(`</${escapedTagName}>`, "gi"), "");
+}
+
+function findNextFileMarkerIndex(text: string, fromIndex: number): number {
+  const markerPattern = /^--- File:/gim;
+  markerPattern.lastIndex = fromIndex;
+  return markerPattern.exec(text)?.index ?? -1;
+}
+
+function stripReasoningBlocksFromFiles(
+  files: Partial<Record<GeneratedFileName, string>>,
+): Partial<Record<GeneratedFileName, string>> {
+  return Object.fromEntries(
+    Object.entries(files).map(([filename, content]) => [
+      filename,
+      content ? stripReasoningBlocks(content).text : content,
+    ]),
+  ) as Partial<Record<GeneratedFileName, string>>;
 }
 
 function stripOuterMarkdownFence(text: string): {
@@ -542,11 +574,51 @@ function repairUnsafeQaAndFallbackText(
     },
     {
       patterns: [
-        /Screen reader announces dynamic state changes or TODO placeholders correctly/i,
+        /fake Kaze-prefixed components such as\s+`?(?:Button|TextField|Dropdown|Avatar|Typography)`?/i,
+        /Does not use fake Kaze-prefixed components such as\s+`?(?:Button|TextField|Dropdown|Avatar|Typography)`?/i,
       ],
       replacement:
-        "- [ ] Screen reader behaviour is verified for implemented dynamic states.",
-      label: "unsafe screen reader QA line",
+        "- [ ] Does not use fake Kaze-prefixed components such as `KazeButton`, `KazeInput`, `KazeSelect`, `KazeAvatar`, or `KazeTypography`.",
+      label: "valid exports listed as fake Kaze-prefixed components",
+    },
+    {
+      patterns: [/Does not import\s+`?Button`?/i, /does not import\s+Button/i],
+      replacement:
+        "- [ ] Confirms `Button` is a real unprefixed export from `@pcs-security/kaze-ui-library`.",
+      label: "does not import Button QA line",
+    },
+    {
+      patterns: [
+        /Does not import\s+`?TextField`?/i,
+        /does not import\s+TextField/i,
+      ],
+      replacement:
+        "- [ ] Confirms `TextField` is a real unprefixed export from `@pcs-security/kaze-ui-library`.",
+      label: "does not import TextField QA line",
+    },
+    {
+      patterns: [
+        /Does not import\s+`?Dropdown`?/i,
+        /does not import\s+Dropdown/i,
+      ],
+      replacement:
+        "- [ ] Confirms `Dropdown` is a real unprefixed export from `@pcs-security/kaze-ui-library`.",
+      label: "does not import Dropdown QA line",
+    },
+    {
+      patterns: [/Does not import\s+`?Avatar`?/i, /does not import\s+Avatar/i],
+      replacement:
+        "- [ ] Confirms `Avatar` is a real unprefixed export from `@pcs-security/kaze-ui-library`.",
+      label: "does not import Avatar QA line",
+    },
+    {
+      patterns: [
+        /Does not import\s+`?Typography`?/i,
+        /does not import\s+Typography/i,
+      ],
+      replacement:
+        "- [ ] Confirms `Typography` is a real unprefixed export from `@pcs-security/kaze-ui-library`.",
+      label: "does not import Typography QA line",
     },
     {
       patterns: [/use a standard accessible fallback until confirmed/i],
@@ -662,11 +734,9 @@ function sanitizeParsedFiles(
   files: Partial<Record<GeneratedFileName, string>>,
   kazeComponentCatalog: string,
 ): Partial<Record<GeneratedFileName, string>> {
-  const missingFilenameRepairedFiles = repairMissingFilenamePlaceholdersInFiles(
-    files,
-  );
-
-  return {
+  const missingFilenameRepairedFiles =
+    repairMissingFilenamePlaceholdersInFiles(files);
+  const sanitizedFiles = {
     ...missingFilenameRepairedFiles,
     "pack-manifest.md": sanitizeManifestContent(
       missingFilenameRepairedFiles["pack-manifest.md"],
@@ -685,6 +755,10 @@ function sanitizeParsedFiles(
       missingFilenameRepairedFiles["qa-checklist.md"],
     ),
   };
+
+  return repairKazeMappingSourceFilesFromManifest(
+    ensureComponentGalleryMappingContent(sanitizedFiles),
+  );
 }
 
 function repairMissingFilenamePlaceholdersInFiles(
@@ -696,6 +770,124 @@ function repairMissingFilenamePlaceholdersInFiles(
       content ? repairMissingFilenamePlaceholders(content) : content,
     ]),
   ) as Partial<Record<GeneratedFileName, string>>;
+}
+
+function ensureComponentGalleryMappingContent(
+  files: Partial<Record<GeneratedFileName, string>>,
+): Partial<Record<GeneratedFileName, string>> {
+  const manifest = files["pack-manifest.md"] ?? "";
+  const mapping = files["kaze-component-mapping.md"] ?? "";
+
+  if (
+    !/Kaze Component Gallery|Kaze UI Components Gallery|UI Components Gallery|KazeComponentGallery/i.test(
+      `${manifest}\n${mapping}`,
+    )
+  ) {
+    return files;
+  }
+
+  const galleryExports = getVisualKazeExports();
+  const missingExports = galleryExports.filter(
+    (exportName) => !new RegExp(`\\b${escapeRegExp(exportName)}\\b`).test(mapping),
+  );
+  const utilityExports = ["notification", "useNotification"].filter(
+    (exportName) => !new RegExp(`\\b${escapeRegExp(exportName)}\\b`).test(mapping),
+  );
+
+  if (missingExports.length === 0 && utilityExports.length === 0) {
+    return files;
+  }
+
+  const appendix = [
+    "",
+    "## Component Gallery Coverage",
+    "",
+    "Visual Kaze exports visible or expected in this component gallery:",
+    ...missingExports.map((exportName) => `- \`${exportName}\``),
+    ...(utilityExports.length > 0
+      ? [
+          "",
+          "Utility exports shown for reference only, not visual components:",
+          ...utilityExports.map((exportName) => `- \`${exportName}\``),
+        ]
+      : []),
+  ].join("\n");
+
+  return {
+    ...files,
+    "kaze-component-mapping.md": `${mapping.trim()}\n${appendix}`,
+  };
+}
+
+function repairKazeMappingSourceFilesFromManifest(
+  files: Partial<Record<GeneratedFileName, string>>,
+): Partial<Record<GeneratedFileName, string>> {
+  const manifest = files["pack-manifest.md"] ?? "";
+  const mapping = files["kaze-component-mapping.md"];
+  const screenshotPaths = extractScreenshotPathsFromText(manifest);
+
+  if (!mapping || screenshotPaths.length === 0) {
+    return files;
+  }
+
+  const sourceFilesSection = [
+    "## Source Files",
+    ...screenshotPaths.map((screenshotPath) => `- \`${screenshotPath}\``),
+  ].join("\n");
+
+  return {
+    ...files,
+    "kaze-component-mapping.md": replaceOrInsertMarkdownSection(
+      mapping,
+      "Source Files",
+      sourceFilesSection,
+    ),
+  };
+}
+
+function extractScreenshotPathsFromText(text: string): string[] {
+  return uniqueStrings(
+    [
+      ...text.matchAll(
+        /screenshots\/[A-Za-z0-9][A-Za-z0-9_.-]*\.(?:png|jpg|jpeg|webp)/gi,
+      ),
+    ].map((match) => match[0]),
+  );
+}
+
+function replaceOrInsertMarkdownSection(
+  markdown: string,
+  sectionName: string,
+  replacementSection: string,
+): string {
+  const sectionPattern = new RegExp(
+    `(^|\\n)## ${escapeRegExp(sectionName)}\\s*\\n[\\s\\S]*?(?=\\n## |$)`,
+    "i",
+  );
+
+  if (sectionPattern.test(markdown)) {
+    return markdown
+      .replace(sectionPattern, (_match, prefix: string) => {
+        return `${prefix}${replacementSection}`;
+      })
+      .trim();
+  }
+
+  const titleMatch = markdown.match(/^# .+$/m);
+  if (!titleMatch || titleMatch.index === undefined) {
+    return [replacementSection, markdown.trim()].join("\n\n");
+  }
+
+  const insertAt = titleMatch.index + titleMatch[0].length;
+  return [
+    markdown.slice(0, insertAt).trimEnd(),
+    "",
+    replacementSection,
+    "",
+    markdown.slice(insertAt).trimStart(),
+  ]
+    .join("\n")
+    .trim();
 }
 
 function repairMissingFilenamePlaceholders(text: string): string {
@@ -732,6 +924,17 @@ function sanitizeManifestContent(
     return manifest;
   }
 
+  const visibleActionReplacement =
+    /Kaze Component Gallery|Kaze UI Components Gallery|UI Components Gallery|KazeComponentGallery/i.test(
+      manifest,
+    )
+      ? [
+          "- Review component groups.",
+          "- Compare visual component examples.",
+          "- Identify matching Kaze exports for screenshot-to-code generation.",
+          "- Verify utility exports such as `notification` and `useNotification`.",
+        ].join("\n")
+      : AI_ASSISTANT_HOME_VISIBLE_ACTION_LINES.join("\n");
   const normalizedManifest = manifest
     .replace(
       /Exact spacing and sizing tokens are not provided in the design specs\.?/gi,
@@ -739,7 +942,7 @@ function sanitizeManifestContent(
     )
     .replace(
       /^\s*[-*]\s*Visible actions should be confirmed from the referenced screenshots in handoff\.md\.?\s*$/gim,
-      AI_ASSISTANT_HOME_VISIBLE_ACTION_LINES.join("\n"),
+      visibleActionReplacement,
     )
     .replace(
       /Animation behavior for the Thinking selector and quick action buttons is unconfirmed\.?/gi,
@@ -792,7 +995,35 @@ function sanitizeManifestContent(
     .join("\n")
     .trim();
 
-  return normalizeManifestUnknowns(cleanedManifest);
+  const normalizedUnknowns = normalizeManifestUnknowns(cleanedManifest);
+
+  if (
+    /Kaze Component Gallery|Kaze UI Components Gallery|UI Components Gallery|KazeComponentGallery/i.test(
+      normalizedUnknowns,
+    )
+  ) {
+    return replaceManifestUnknowns(normalizedUnknowns, [
+      "Exact interactive behaviour for each sample component is not confirmed.",
+      "Component props and variants should be verified against the installed Kaze package typings or Storybook.",
+      "Utility exports such as `notification` and `useNotification` should only be used when notification behaviour is required.",
+      "Layout wrappers/cards are not confirmed Kaze exports unless package typings prove they exist.",
+    ]);
+  }
+
+  return normalizedUnknowns;
+}
+
+function replaceManifestUnknowns(manifest: string, unknowns: string[]): string {
+  const unknownSection = [
+    "## Unknowns / Needs Confirmation",
+    ...unknowns.map((unknown) => `- ${unknown}`),
+  ].join("\n");
+
+  if (/## Unknowns \/ Needs Confirmation[\s\S]*$/i.test(manifest)) {
+    return manifest.replace(/## Unknowns \/ Needs Confirmation[\s\S]*$/i, unknownSection);
+  }
+
+  return `${manifest.trim()}\n\n${unknownSection}`;
 }
 
 function normalizeManifestUnknowns(manifest: string): string {
@@ -931,7 +1162,13 @@ function sanitizeKazeComponentMappingContent(
 
   const allowedComponents = getAllowedKazeComponents(kazeComponentCatalog);
 
-  const cleanedMapping = repairContradictoryForbiddenKazeExportLines(mapping)
+  // File-level repair: bare "Unknown" → "Unknown / verify from Kaze"
+  // This catches any bare "Unknown" that slips through table-specific repairs.
+  const unknownRepaired = repairBareUnknownInMapping(
+    repairContradictoryForbiddenKazeExportLines(mapping, allowedComponents),
+  );
+
+  const cleanedMapping = unknownRepaired
     .replace(/Exact Kaze Component/gi, "Exact Kaze Export")
     .replace(
       /^(\s*[-*]\s*)?Do not use fake Kaze-prefixed names\s*\((?:e\.g\.|for example),?\s*Button\)\.?\s*$/gim,
@@ -947,58 +1184,81 @@ function sanitizeKazeComponentMappingContent(
     );
 
   let inComponentMappingTable = false;
+  let inIconMappingTable = false;
 
-  return ensureKazeComponentMappingRuleText(cleanedMapping
-    .split("\n")
-    .map((line) => {
-      const cells = parseMarkdownTableRow(line);
-      if (!cells) {
-        inComponentMappingTable = false;
-      } else if (cells.some((cell) => /^Exact Kaze Export$/i.test(cell))) {
-        inComponentMappingTable = true;
-      } else if (
-        !isMarkdownTableSeparator(cells) &&
-        /^UI Element$/i.test(cells[0])
-      ) {
-        inComponentMappingTable = false;
-      }
+  return ensureKazeComponentMappingRuleText(
+    cleanedMapping
+      .split("\n")
+      .map((line) => {
+        const cells = parseMarkdownTableRow(line);
+        if (!cells) {
+          inComponentMappingTable = false;
+          inIconMappingTable = false;
+        } else if (cells.some((cell) => /^Exact Kaze Export$/i.test(cell))) {
+          inComponentMappingTable = true;
+          inIconMappingTable = false;
+        } else if (cells.some((cell) => /^Component$/i.test(cell))) {
+          inIconMappingTable = true;
+          inComponentMappingTable = false;
+        } else if (
+          !isMarkdownTableSeparator(cells) &&
+          /^UI Element$/i.test(cells[0])
+        ) {
+          inComponentMappingTable = false;
+        } else if (
+          !isMarkdownTableSeparator(cells) &&
+          /^Icon Element$/i.test(cells[0])
+        ) {
+          inIconMappingTable = false;
+        }
 
-      const normalizedComponentLine = inComponentMappingTable
-        ? normalizeMappingExactComponentCell(line, allowedComponents)
-        : line;
+        let normalizedLine = line;
 
-      if (!/Known standard icon/i.test(normalizedComponentLine)) {
-        return normalizedComponentLine;
-      }
+        if (inComponentMappingTable) {
+          normalizedLine = normalizeMappingExactComponentCell(
+            line,
+            allowedComponents,
+            kazeComponentCatalog,
+          );
+        } else if (inIconMappingTable) {
+          normalizedLine = normalizeIconMappingExactComponentCell(line);
+        }
 
-      if (/sidebar\s+nav\s+icons?/i.test(normalizedComponentLine)) {
-        return normalizedComponentLine.replace(
+        if (!/Known standard icon/i.test(normalizedLine)) {
+          return normalizedLine;
+        }
+
+        if (/sidebar\s+nav\s+icons?/i.test(normalizedLine)) {
+          return normalizedLine.replace(
+            /Known standard icon/gi,
+            "Unknown / verify Font Awesome icon",
+          );
+        }
+
+        const iconDescription = inferFontAwesomeIconDescription(normalizedLine);
+        return normalizedLine.replace(
           /Known standard icon/gi,
-          "Unknown / verify Font Awesome icon",
+          `Likely Font Awesome ${iconDescription}; verify project icon setup.`,
         );
-      }
-
-      const iconDescription = inferFontAwesomeIconDescription(
-        normalizedComponentLine,
-      );
-      return normalizedComponentLine.replace(
-        /Known standard icon/gi,
-        `Likely Font Awesome ${iconDescription}; verify project icon setup.`,
-      );
-    })
-    .join("\n"));
+      })
+      .join("\n"),
+    allowedComponents,
+  );
 }
 
-function repairContradictoryForbiddenKazeExportLines(mapping: string): string {
+function repairContradictoryForbiddenKazeExportLines(
+  mapping: string,
+  allowedComponents: Set<string>,
+): string {
   return mapping
     .split("\n")
     .map((line) => {
-      if (!lineForbidsConfirmedCoreKazeExports(line)) {
+      if (!lineForbidsConfirmedCoreKazeExports(line, allowedComponents)) {
         return line;
       }
 
       const labelMatch = line.match(
-        /^(\s*[-*]\s*(?:\*\*)?(?:Forbidden Names|Forbidden Exports|Invalid)(?:\*\*)?\s*:?\s*).*/i,
+        /^(\s*[-*]\s*(?:\*\*)?(?:Forbidden(?:\s+\w+)*\s+Names|Forbidden Exports|Invalid)(?:\*\*)?\s*:?\s*).*/i,
       );
 
       if (!labelMatch) {
@@ -1010,9 +1270,12 @@ function repairContradictoryForbiddenKazeExportLines(mapping: string): string {
     .join("\n");
 }
 
-function lineForbidsConfirmedCoreKazeExports(line: string): boolean {
+function lineForbidsConfirmedCoreKazeExports(
+  line: string,
+  allowedComponents: Set<string>,
+): boolean {
   if (
-    !/(forbidden names|forbidden exports|invalid|do\s+not\s+use|do\s+NOT\s+use|don't\s+use|never\s+use)/i.test(
+    !/(forbidden(?:\s+\w+)*\s+names|forbidden exports|invalid|do\s+not\s+use|do\s+NOT\s+use|don't\s+use|never\s+use)/i.test(
       line,
     )
   ) {
@@ -1023,45 +1286,46 @@ function lineForbidsConfirmedCoreKazeExports(line: string): boolean {
     return false;
   }
 
-  const forbiddenRealExportCount =
-    CORE_KAZE_EXPORTS_THAT_MUST_NOT_BE_FORBIDDEN.filter((exportName) =>
-      new RegExp(`(^|[^A-Za-z0-9_])${exportName}([^A-Za-z0-9_]|$)`).test(
-        line,
-      ),
-    ).length;
+  const coreExports = CORE_KAZE_EXPORTS_THAT_MUST_NOT_BE_FORBIDDEN.filter(
+    (exportName) => allowedComponents.has(exportName),
+  );
+
+  const forbiddenRealExportCount = coreExports.filter((exportName) =>
+    new RegExp(`(^|[^A-Za-z0-9_])${exportName}([^A-Za-z0-9_]|$)`).test(line),
+  ).length;
 
   return forbiddenRealExportCount >= 2;
 }
 
-function ensureKazeComponentMappingRuleText(mapping: string): string {
-  if (
-    /## Real Export Rule/i.test(mapping) &&
-    /Button[\s,\n]+TextField[\s,\n]+Dropdown/i.test(mapping) &&
-    /KazeButton[\s,\n]+KazeInput[\s,\n]+KazeSelect/i.test(mapping)
-  ) {
-    return mapping;
-  }
+function ensureKazeComponentMappingRuleText(
+  mapping: string,
+  allowedComponents: Set<string>,
+): string {
+  const confirmedExports = getConfirmedKazeExportList(allowedComponents);
+  const confirmedUsed = getConfirmedExportsUsedInText(mapping, confirmedExports);
+  const visualUsed = confirmedUsed.filter(
+    (exportName) => !["notification", "useNotification"].includes(exportName),
+  );
+  const utilityUsed = confirmedUsed.filter((exportName) =>
+    ["notification", "useNotification"].includes(exportName),
+  );
+  const fakeNames = getForbiddenFakeNames();
+  const primaryFakeNames = getPrimaryForbiddenFakeNames();
 
-  return [
-    mapping.trim(),
+  const mappingWithoutGuidance = removeMarkdownSections(mapping, [
+    "Import Rule",
+    "Confirmed Kaze Exports Used",
+    "Forbidden Fake Names",
+    "Fallback Rule",
+  ]);
+
+  const canonicalGuidance = [
     "",
-    "## Real Export Rule",
+    "## Import Rule",
     "",
-    "Only import components that are actually exported by `@pcs-security/kaze-ui-library`.",
+    "Use real unprefixed named exports from `@pcs-security/kaze-ui-library`.",
     "",
-    "Known valid exports include:",
-    "",
-    ...getConfirmedKazeExportList().map((component) => `- ${component}`),
-    "",
-    "Do not use names that are not in this list unless the installed package typings prove the export exists.",
-    "",
-    "Never use fake prefixed aliases such as `KazeButton`, `KazeInput`, `KazeSelect`, `KazeAvatar`, or `KazeTypography`.",
-    "",
-    "## Kaze Import Rule",
-    "- `Button`, `TextField`, `Dropdown`, `Avatar`, and `Typography` are real unprefixed exports from `@pcs-security/kaze-ui-library`.",
-    "- Do not use fake Kaze-prefixed names such as `KazeButton`, `KazeInput`, `KazeSelect`, `KazeAvatar`, or `KazeTypography`.",
-    "",
-    "Correct:",
+    "**Correct:**",
     "```ts",
     "import {",
     "  Button,",
@@ -1072,9 +1336,9 @@ function ensureKazeComponentMappingRuleText(mapping: string): string {
     '} from "@pcs-security/kaze-ui-library";',
     "```",
     "",
-    "Incorrect:",
+    "**Incorrect:**",
     "```ts",
-    "// WRONG - do not use fake Kaze-prefixed exports",
+    "// WRONG - fake Kaze-prefixed exports do not exist",
     "import {",
     "  KazeButton,",
     "  KazeInput,",
@@ -1083,16 +1347,75 @@ function ensureKazeComponentMappingRuleText(mapping: string): string {
     "  KazeTypography,",
     '} from "@pcs-security/kaze-ui-library";',
     "```",
+    "",
+    "## Confirmed Kaze Exports Used",
+    "",
+    ...(visualUsed.length > 0
+      ? visualUsed.map((component) => `- \`${component}\``)
+      : ["- No confirmed visual Kaze exports were detected in this mapping."]),
+    ...(utilityUsed.length > 0
+      ? [
+          "",
+          "Utility exports referenced:",
+          ...utilityUsed.map((component) => `- \`${component}\``),
+        ]
+      : []),
+    "",
+    "## Forbidden Fake Names",
+    "",
+    "Do not use fake Kaze-prefixed exports:",
+    "",
+    ...fakeNames.map((component) => `- \`${component}\``),
+    "",
+    "## Fallback Rule",
+    "",
+    "If a visual pattern does not map to a confirmed Kaze export, write:",
+    "",
+    "`Unknown / verify from Kaze`",
+    "",
+    "Do not invent components such as `KazeCard`, `KazeSidebar`, `KazeIcon`, `KazeLayout`, `KazeBox`, or `KazeFlex`.",
+    "",
+    `Primary fake aliases that must never be imported as valid exports: ${primaryFakeNames.map((name) => `\`${name}\``).join(", ")}.`,
   ].join("\n");
+
+  return [mappingWithoutGuidance.trim(), canonicalGuidance.trim()]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
-function getConfirmedKazeExportList(): string[] {
-  return [...CONFIRMED_KAZE_EXPORTS];
+function removeMarkdownSections(markdown: string, sectionNames: string[]): string {
+  const sectionAlternation = sectionNames.map(escapeRegExp).join("|");
+  const sectionPattern = new RegExp(
+    `(^|\\n)## (?:${sectionAlternation})\\s*\\n[\\s\\S]*?(?=\\n## |$)`,
+    "gi",
+  );
+
+  return markdown
+    .replace(sectionPattern, (_match, prefix: string) => prefix)
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function getConfirmedKazeExportList(allowedComponents?: Set<string>): string[] {
+  if (allowedComponents) {
+    return [...allowedComponents];
+  }
+  return getConfirmedKazeExports();
+}
+
+function getConfirmedExportsUsedInText(
+  text: string,
+  confirmedExports: string[],
+): string[] {
+  return confirmedExports.filter((exportName) =>
+    new RegExp(`\\b${escapeRegExp(exportName)}\\b`).test(text),
+  );
 }
 
 function normalizeMappingExactComponentCell(
   line: string,
   allowedComponents: Set<string>,
+  _catalog?: string,
 ): string {
   const cells = parseMarkdownTableRow(line);
   if (!cells || cells.length < 5 || isMarkdownTableSeparator(cells)) {
@@ -1133,9 +1456,7 @@ function normalizeMappingExactComponentCell(
     return formatMarkdownTableRow([
       "Quick Action Buttons",
       "Button / rounded action button",
-      allowedComponents.has("Button")
-        ? "Button"
-        : "Unknown / verify from Kaze",
+      allowedComponents.has("Button") ? "Button" : "Unknown / verify from Kaze",
       allowedComponents.has("Button") ? "Medium" : "Low",
       "Use rounded/button variant if supported; verify existing project pattern.",
       ...rest,
@@ -1146,9 +1467,7 @@ function normalizeMappingExactComponentCell(
     return formatMarkdownTableRow([
       "Microphone Button",
       "Button / icon button",
-      allowedComponents.has("Button")
-        ? "Button"
-        : "Unknown / verify from Kaze",
+      allowedComponents.has("Button") ? "Button" : "Unknown / verify from Kaze",
       allowedComponents.has("Button") ? "High" : "Low",
       "Use Font Awesome microphone icon if project setup supports it.",
       ...rest,
@@ -1177,10 +1496,7 @@ function normalizeMappingExactComponentCell(
     ]);
   }
 
-  if (
-    /plus|attachment/i.test(uiElement) &&
-    allowedComponents.has("Button")
-  ) {
+  if (/plus|attachment/i.test(uiElement) && allowedComponents.has("Button")) {
     return formatMarkdownTableRow([
       uiElement,
       intendedPattern,
@@ -1270,6 +1586,110 @@ function normalizeMappingExactComponentCell(
       exactCell,
       confidence,
       noteCell,
+      ...rest,
+    ]);
+  }
+
+  return line;
+}
+
+function repairBareUnknownInMapping(text: string): string {
+  // File-level repair: replace bare "Unknown" with "Unknown / verify from Kaze"
+  // Only replaces "Unknown" when it's NOT already followed by " / verify from Kaze"
+  return text.replace(
+    /\bUnknown\b(?!\s*\/\s*verify from Kaze)/gi,
+    "Unknown / verify from Kaze",
+  );
+}
+
+// Used by the new "Resolve Unknowns" feature to identify which rows are unknown
+export function extractUnknownCells(text: string): Array<{
+  uiElement: string;
+  pattern: string;
+  cellValue: string;
+  confidence: string;
+  notes: string;
+}> {
+  const unknowns: Array<{
+    uiElement: string;
+    pattern: string;
+    cellValue: string;
+    confidence: string;
+    notes: string;
+  }> = [];
+
+  let inScreenMappingTable = false;
+  let inIconMappingTable = false;
+
+  text.split("\n").forEach((line) => {
+    const cells = parseMarkdownTableRow(line);
+    if (!cells) {
+      inScreenMappingTable = false;
+      inIconMappingTable = false;
+      return;
+    }
+
+    if (cells.some((cell) => /^Exact Kaze Export$/i.test(cell))) {
+      inScreenMappingTable = true;
+      inIconMappingTable = false;
+      return;
+    }
+
+    if (cells.some((cell) => /^Component$/i.test(cell))) {
+      inIconMappingTable = true;
+      inScreenMappingTable = false;
+      return;
+    }
+
+    if (!isMarkdownTableSeparator(cells) && /^UI Element$/i.test(cells[0])) {
+      inScreenMappingTable = false;
+    }
+    if (!isMarkdownTableSeparator(cells) && /^Icon Element$/i.test(cells[0])) {
+      inIconMappingTable = false;
+    }
+
+    const tableType = inScreenMappingTable
+      ? "screen"
+      : inIconMappingTable
+        ? "icon"
+        : null;
+    if (!tableType || isMarkdownTableSeparator(cells) || cells.length < 5) {
+      return;
+    }
+
+    const componentCell = (tableType === "screen" ? cells[2] : cells[2]).trim();
+    if (/Unknown/i.test(componentCell)) {
+      unknowns.push({
+        uiElement: cells[0],
+        pattern: cells[1],
+        cellValue: componentCell,
+        confidence: cells[3],
+        notes: cells[4] ?? "",
+      });
+    }
+  });
+
+  return unknowns;
+}
+
+function normalizeIconMappingExactComponentCell(line: string): string {
+  const cells = parseMarkdownTableRow(line);
+  if (!cells || cells.length < 5 || isMarkdownTableSeparator(cells)) {
+    return line;
+  }
+
+  const [iconElement, patternType, component, confidence, notes, ...rest] =
+    cells;
+  const exactCell = repairFakeKazeNames(component.trim());
+
+  // If the cell contains bare "Unknown", replace with "Unknown / verify from Kaze"
+  if (/^Unknown$/i.test(exactCell)) {
+    return formatMarkdownTableRow([
+      iconElement,
+      patternType,
+      "Unknown / verify from Kaze",
+      confidence,
+      notes,
       ...rest,
     ]);
   }
@@ -1437,18 +1857,18 @@ function hasRequiredFinalReportSection(prompt: string): boolean {
   ].every((requiredText) => prompt.includes(requiredText));
 }
 
-function validateFinalOutput(params: {
-  text: string;
-  files: Partial<Record<GeneratedFileName, string>>;
-  allowedFilenames: string[];
-  parsedFilenames: ParsedFilenameContext[];
-}): FinalValidationResult {
+function validateFinalOutput(params: FinalValidationParams): FinalValidationResult {
   const warnings: string[] = [];
   const failureIssues: string[] = [];
   const reviewIssues: string[] = [];
+  const logPrefix = `[validateFinalOutput:${params.validationLabel}]`;
+  console.log(`${logPrefix} Starting output validation.`);
   const finalText =
     Object.values(params.files).filter(Boolean).join("\n\n") || params.text;
   const finalTextForRiskScan = stripAllowedIncorrectKazeExamples(finalText);
+  const kazeContentErrors = validateKazeMappingContent(
+    params.files as Record<string, string | undefined>,
+  );
 
   const addWarning = (message: string, issue = message) => {
     warnings.push(message);
@@ -1458,6 +1878,34 @@ function validateFinalOutput(params: {
     warnings.push(message);
     failureIssues.push(issue);
   };
+
+  kazeContentErrors.forEach((error) => addFailure(error));
+
+  const isComponentGalleryPack =
+    params.parsedFilenames.some((parsed) =>
+      /component\s*gallery|components\s*gallery|kazecomponentgallery/i.test(
+        `${parsed.filename} ${parsed.screenName ?? ""}`,
+      ),
+    ) ||
+    /Kaze UI Components Gallery|Kaze Component Gallery|UI Components Gallery/i.test(
+      finalText,
+    );
+
+  if (isComponentGalleryPack) {
+    [
+      "voice input",
+      "white circular action button",
+      "quick action behaviours",
+      "AI assistant greeting",
+      "AIAssistantHomeScreen",
+    ].forEach((leakedText) => {
+      if (new RegExp(escapeRegExp(leakedText), "i").test(finalText)) {
+        addFailure(
+          `Generated component gallery pack contains AI Assistant template leakage: ${leakedText}.`,
+        );
+      }
+    });
+  }
 
   const riskyFinalPatterns: Array<{
     label: string;
@@ -1495,21 +1943,6 @@ function validateFinalOutput(params: {
     { label: "reasoning", pattern: /\breasoning\b/i },
     { label: "Thought for", pattern: /Thought for/i, failure: true },
     { label: "analysis", pattern: /\banalysis\b/i, failure: true },
-    { label: "KazeButton", pattern: /\bKazeButton\b/ },
-    { label: "KazeInput", pattern: /\bKazeInput\b/ },
-    { label: "KazeSelect", pattern: /\bKazeSelect\b/ },
-    { label: "KazeSidebar", pattern: /\bKazeSidebar\b/ },
-    { label: "KazeAvatar", pattern: /\bKazeAvatar\b/ },
-    { label: "KazeCard", pattern: /\bKazeCard\b/ },
-    { label: "KazeIcon", pattern: /\bKazeIcon\b/ },
-    { label: "KazeLayout", pattern: /\bKazeLayout\b/ },
-    { label: "KazeText", pattern: /\bKazeText\b/ },
-    { label: "KazeTypography", pattern: /\bKazeTypography\b/ },
-    { label: "KazeFlex", pattern: /\bKazeFlex\b/ },
-    { label: "KazeBox", pattern: /\bKazeBox\b/ },
-    { label: "KazeHeading", pattern: /\bKazeHeading\b/ },
-    { label: "KazeGreeting", pattern: /\bKazeGreeting\b/ },
-    { label: "KazePromptBar", pattern: /\bKazePromptBar\b/ },
     {
       label: "Use KazeInput or similar text component for the greeting",
       pattern: /Use KazeInput or similar text component for the greeting/i,
@@ -1599,7 +2032,7 @@ function validateFinalOutput(params: {
     if (!pattern.test(finalTextForRiskScan)) {
       return;
     }
-
+    console.log(`${logPrefix} Risky pattern matched: ${label}`);
     const message = `Generated output contains risky phrase after repair: ${label}.`;
     if (failure) {
       addFailure(
@@ -1675,22 +2108,50 @@ function validateFinalOutput(params: {
     });
   });
 
-  const manifestWarnings = validateManifestCleanliness(params.files);
+  const manifestWarnings = shouldValidateExpectedFile(
+    params,
+    "pack-manifest.md",
+  )
+    ? validateManifestCleanliness(params.files)
+    : [];
+  if (manifestWarnings.length > 0) {
+    console.log(
+      `${logPrefix} Manifest cleanliness warnings: ${manifestWarnings.join("; ")}`,
+    );
+  }
   warnings.push(...manifestWarnings);
   reviewIssues.push(...manifestWarnings);
 
-  const visualWarnings = validateHandoffAndClineVisualSafety(params.files);
+  const visualWarnings =
+    shouldValidateExpectedFile(params, "handoff.md") ||
+    shouldValidateExpectedFile(params, "cline-implementation-prompt.md")
+      ? validateHandoffAndClineVisualSafety(params.files)
+      : [];
   warnings.push(...visualWarnings);
   reviewIssues.push(...visualWarnings);
 
-  const mappingWarnings = validateKazeComponentMapping(
-    params.files["kaze-component-mapping.md"],
+  const shouldValidateMapping = shouldValidateExpectedFile(
+    params,
+    "kaze-component-mapping.md",
   );
+  const confirmedExportsArray = shouldValidateMapping
+    ? getAllowedKazeComponentsFromCatalog(params)
+    : [];
+  const allowedForMapping = new Set<string>(confirmedExportsArray);
+  const mappingWarnings = shouldValidateMapping
+    ? validateKazeComponentMapping(
+        params.files["kaze-component-mapping.md"],
+        allowedForMapping,
+      )
+    : [];
+  if (mappingWarnings.length > 0) {
+    console.log(`${logPrefix} Mapping warnings: ${mappingWarnings.join("; ")}`);
+  }
   warnings.push(...mappingWarnings);
   reviewIssues.push(...mappingWarnings);
 
   const manifest = params.files["pack-manifest.md"];
-  if (manifest) {
+  if (manifest && shouldValidateExpectedFile(params, "pack-manifest.md")) {
     const packContentWarnings = validateManifestPackContents(
       manifest,
       params.allowedFilenames,
@@ -1708,13 +2169,18 @@ function validateFinalOutput(params: {
     });
   }
 
-  const clineWarnings = validateClinePrompt(
-    params.files["cline-implementation-prompt.md"],
-  );
+  const clineWarnings = shouldValidateExpectedFile(
+    params,
+    "cline-implementation-prompt.md",
+  )
+    ? validateClinePrompt(params.files["cline-implementation-prompt.md"])
+    : [];
   warnings.push(...clineWarnings);
   reviewIssues.push(...clineWarnings);
 
-  const qaWarnings = validateQaChecklist(params.files["qa-checklist.md"]);
+  const qaWarnings = shouldValidateExpectedFile(params, "qa-checklist.md")
+    ? validateQaChecklist(params.files["qa-checklist.md"])
+    : [];
   warnings.push(...qaWarnings);
   reviewIssues.push(...qaWarnings);
 
@@ -1725,6 +2191,40 @@ function validateFinalOutput(params: {
   };
 }
 
+function shouldValidateExpectedFile(
+  params: Pick<FinalValidationParams, "expectedFileNames">,
+  filename: GeneratedFileName,
+): boolean {
+  return params.expectedFileNames.includes(filename);
+}
+
+function getValidationLabel(
+  expectedFileNames: readonly GeneratedFileName[],
+): string {
+  const expected = new Set(expectedFileNames);
+
+  if (expected.size === EXPECTED_FILE_NAMES.length) {
+    return "final";
+  }
+
+  if (expected.has("pack-manifest.md")) {
+    return "manifest";
+  }
+
+  if (expected.has("handoff.md") || expected.has("kaze-component-mapping.md")) {
+    return "handoff-mapping";
+  }
+
+  if (
+    expected.has("cline-implementation-prompt.md") ||
+    expected.has("qa-checklist.md")
+  ) {
+    return "cline-qa";
+  }
+
+  return "partial";
+}
+
 function validateManifestPackContents(
   manifest: string,
   allowedFilenames: string[],
@@ -1733,7 +2233,9 @@ function validateManifestPackContents(
   const packContentsSection = readMarkdownSection(manifest, "Pack Contents");
 
   if (!packContentsSection) {
-    warnings.push("pack-manifest.md is missing required Pack Contents section.");
+    warnings.push(
+      "pack-manifest.md is missing required Pack Contents section.",
+    );
     return warnings;
   }
 
@@ -1771,6 +2273,10 @@ function validateManifestCleanliness(
   if (!manifest) {
     return [];
   }
+  const isComponentGalleryManifest =
+    /Kaze Component Gallery|Kaze UI Components Gallery|UI Components Gallery|KazeComponentGallery/i.test(
+      manifest,
+    );
 
   const warningPatterns: Array<{ label: string; pattern: RegExp }> = [
     { label: "Kaze component details", pattern: /\bKaze[A-Z][A-Za-z0-9]*\b/ },
@@ -1810,7 +2316,16 @@ function validateManifestCleanliness(
   ];
 
   return warningPatterns
-    .filter(({ pattern }) => pattern.test(manifest))
+    .filter(({ label, pattern }) => {
+      if (
+        isComponentGalleryManifest &&
+        ["confirmed Kaze exports", "Storybook instructions"].includes(label)
+      ) {
+        return false;
+      }
+
+      return pattern.test(manifest);
+    })
     .map(
       ({ label }) =>
         `pack-manifest.md may include content that belongs outside the manifest: ${label}.`,
@@ -1837,12 +2352,25 @@ function validateHandoffAndClineVisualSafety(
   return warnings;
 }
 
-function validateKazeComponentMapping(mapping: string | undefined): string[] {
+function getAllowedKazeComponentsFromCatalog(_params: {
+  files: Partial<Record<GeneratedFileName, string>>;
+}): string[] {
+  return getConfirmedKazeExports();
+}
+
+function validateKazeComponentMapping(
+  mapping: string | undefined,
+  allowedComponents: Set<string>,
+): string[] {
   if (!mapping) {
+    console.log("[validateKazeComponentMapping] No mapping content provided.");
     return [];
   }
 
   const warnings: string[] = [];
+  console.log(
+    `[validateKazeComponentMapping] Validating kaze-component-mapping.md (${mapping.length} chars). Allowed components: ${[...allowedComponents].join(", ")}`,
+  );
 
   if (
     /Do not use fake Kaze-prefixed names\s*\((?:e\.g\.|for example),?\s*Button\)/i.test(
@@ -1854,32 +2382,46 @@ function validateKazeComponentMapping(mapping: string | undefined): string[] {
     );
   }
 
-  if (mapping.split("\n").some(lineForbidsConfirmedCoreKazeExports)) {
+  const lineChecksForbidsCore = (line: string) =>
+    lineForbidsConfirmedCoreKazeExports(line, allowedComponents);
+  if (mapping.split("\n").some(lineChecksForbidsCore)) {
     warnings.push(
       "kaze-component-mapping.md incorrectly lists real Kaze exports such as Button, TextField, Dropdown, Avatar, or Typography as forbidden.",
     );
   }
 
   if (
-    !/## Real Export Rule/i.test(mapping) ||
+    !/## Import Rule/i.test(mapping) ||
+    !/## Confirmed Kaze Exports Used/i.test(mapping) ||
+    !/## Forbidden Fake Names/i.test(mapping) ||
+    !/## Fallback Rule/i.test(mapping) ||
     !/Button[\s,\n]+TextField[\s,\n]+Dropdown/i.test(mapping) ||
     !/KazeButton[\s,\n]+KazeInput[\s,\n]+KazeSelect/i.test(mapping)
   ) {
     warnings.push(
-      "kaze-component-mapping.md is missing clear Real Export Rule and fake-export Kaze import guidance.",
+      "kaze-component-mapping.md is missing clear import, confirmed export, forbidden fake-name, or fallback guidance.",
     );
   }
 
   let inComponentMappingTable = false;
+  let inIconMappingTable = false;
   mapping.split("\n").forEach((line) => {
     const cells = parseMarkdownTableRow(line);
     if (!cells) {
       inComponentMappingTable = false;
+      inIconMappingTable = false;
       return;
     }
 
     if (cells.some((cell) => /^Exact Kaze Export$/i.test(cell))) {
       inComponentMappingTable = true;
+      inIconMappingTable = false;
+      return;
+    }
+
+    if (cells.some((cell) => /^Component$/i.test(cell))) {
+      inIconMappingTable = true;
+      inComponentMappingTable = false;
       return;
     }
 
@@ -1887,54 +2429,100 @@ function validateKazeComponentMapping(mapping: string | undefined): string[] {
       inComponentMappingTable = false;
     }
 
-    if (
-      !inComponentMappingTable ||
-      cells.length < 5 ||
-      isMarkdownTableSeparator(cells)
-    ) {
-      return;
+    if (!isMarkdownTableSeparator(cells) && /^Icon Element$/i.test(cells[0])) {
+      inIconMappingTable = false;
     }
 
-    const exactComponent = cells[2];
-    const rowText = `${cells[0]} ${cells[1]} ${cells[4] ?? ""}`;
-    if (exactCellContainsIconDescription(exactComponent)) {
-      warnings.push(
-        "kaze-component-mapping.md Exact Kaze Export column contains Font Awesome/icon wording.",
-      );
+    if (inComponentMappingTable) {
+      if (
+        !inComponentMappingTable ||
+        cells.length < 5 ||
+        isMarkdownTableSeparator(cells)
+      ) {
+        return;
+      }
+
+      const exactComponent = cells[2];
+      const rowText = `${cells[0]} ${cells[1]} ${cells[4] ?? ""}`;
+      if (exactCellContainsIconDescription(exactComponent)) {
+        console.log(
+          `[validateKazeComponentMapping] Font Awesome/icon wording in cell: "${exactComponent.trim()}" (UI: "${cells[0]}")`,
+        );
+        warnings.push(
+          "kaze-component-mapping.md Exact Kaze Export column contains Font Awesome/icon wording.",
+        );
+      }
+
+      if (
+        /quick action|create an image|write or edit|look something up/i.test(
+          rowText,
+        ) &&
+        /^Pills$/i.test(exactComponent.trim()) &&
+        !/interactive action behaviour|supports interactive action/i.test(
+          cells[4] ?? "",
+        )
+      ) {
+        console.log(
+          `[validateKazeComponentMapping] Quick action mapped to Pills without interactive action confirmation (UI: "${cells[0]}")`,
+        );
+        warnings.push(
+          "kaze-component-mapping.md maps clickable quick action buttons to Pills without confirming interactive action behaviour.",
+        );
+      }
+
+      if (
+        /Unknown \/ verify from Kaze\s*(?:or|\/)\s*(?:Unknown \/ verify from Kaze|[A-Za-z][A-Za-z0-9]*)/i.test(
+          exactComponent,
+        )
+      ) {
+        console.log(
+          `[validateKazeComponentMapping] Ambiguous mixed export: "${exactComponent.trim()}" (UI: "${cells[0]}")`,
+        );
+        warnings.push(
+          "kaze-component-mapping.md Exact Kaze Export column contains ambiguous mixed export values.",
+        );
+      }
+
+      if (
+        exactComponent.trim() &&
+        !/Unknown/i.test(exactComponent.trim()) &&
+        !allowedComponents.has(exactComponent.trim())
+      ) {
+        const bareUnknown = /^Unknown$/i.test(exactComponent.trim());
+        if (bareUnknown) {
+          return;
+        }
+        console.log(
+          `[validateKazeComponentMapping] Invalid export "${exactComponent.trim()}" (UI: "${cells[0]}") - not in allowed list`,
+        );
+        warnings.push(
+          "kaze-component-mapping.md Exact Kaze Export column must contain one confirmed Kaze export or Unknown / verify from Kaze.",
+        );
+      }
     }
 
-    if (
-      /quick action|create an image|write or edit|look something up/i.test(
-        rowText,
-      ) &&
-      /^Pills$/i.test(exactComponent.trim()) &&
-      !/interactive action behaviour|supports interactive action/i.test(
-        cells[4] ?? "",
-      )
-    ) {
-      warnings.push(
-        "kaze-component-mapping.md maps clickable quick action buttons to Pills without confirming interactive action behaviour.",
-      );
-    }
+    if (inIconMappingTable) {
+      if (cells.length < 5 || isMarkdownTableSeparator(cells)) {
+        return;
+      }
 
-    if (
-      /Unknown \/ verify from Kaze\s*(?:or|\/)\s*(?:Unknown \/ verify from Kaze|[A-Za-z][A-Za-z0-9]*)/i.test(
-        exactComponent,
-      )
-    ) {
-      warnings.push(
-        "kaze-component-mapping.md Exact Kaze Export column contains ambiguous mixed export values.",
-      );
-    }
-
-    if (
-      exactComponent.trim() &&
-      !/^Unknown \/ verify from Kaze$/.test(exactComponent.trim()) &&
-      !CONFIRMED_KAZE_EXPORTS.has(exactComponent.trim())
-    ) {
-      warnings.push(
-        "kaze-component-mapping.md Exact Kaze Export column must contain one confirmed Kaze export or Unknown / verify from Kaze.",
-      );
+      const iconComponent = cells[2];
+      if (
+        iconComponent.trim() &&
+        !/Unknown/i.test(iconComponent.trim()) &&
+        !allowedComponents.has(iconComponent.trim())
+      ) {
+        const bareUnknown = /^Unknown$/i.test(iconComponent.trim());
+        if (bareUnknown) {
+          return;
+        }
+        console.log(
+          `[validateKazeComponentMapping] Icon table invalid component: "${iconComponent.trim()}" (Icon: "${cells[0]}")`,
+        );
+        warnings.push(
+          "kaze-component-mapping.md Icon Mapping Component column must contain one confirmed Kaze export or Unknown / verify from Kaze.",
+        );
+      }
     }
   });
 
@@ -1962,7 +2550,8 @@ function validateClinePrompt(prompt: string | undefined): string[] {
     },
     {
       label: "Inspect @pcs-security/kaze-ui-library package exports",
-      pattern: /Inspect @pcs-security\/kaze-ui-library package exports|package exports/i,
+      pattern:
+        /Inspect @pcs-security\/kaze-ui-library package exports|package exports/i,
     },
     {
       label: "Inspect Kaze Storybook/docs if available",
@@ -1995,7 +2584,8 @@ function validateClinePrompt(prompt: string | undefined): string[] {
     },
     {
       label: "Use confirmed Kaze exports where available",
-      pattern: /Use confirmed Kaze exports where available|Use Kaze components where available/i,
+      pattern:
+        /Use confirmed Kaze exports where available|Use Kaze components where available/i,
     },
     {
       label: "Do not use raw controls if Kaze equivalents exist",
@@ -2041,11 +2631,13 @@ function validateClinePrompt(prompt: string | undefined): string[] {
     },
     {
       label: "Screenshot does not infer backend or route behavior",
-      pattern: /Do not infer:[\s\S]*backend APIs[\s\S]*route paths[\s\S]*authentication logic/i,
+      pattern:
+        /Do not infer:[\s\S]*backend APIs[\s\S]*route paths[\s\S]*authentication logic/i,
     },
     {
       label: "Unclear screenshot behavior stays static unless specified",
-      pattern: /implement only static frontend behaviour unless explicitly specified in `?handoff\.md`?/i,
+      pattern:
+        /implement only static frontend behaviour unless explicitly specified in `?handoff\.md`?/i,
     },
     {
       label: "Implementation Sequence section",
@@ -2073,7 +2665,8 @@ function validateClinePrompt(prompt: string | undefined): string[] {
     },
     {
       label: "Inspect existing Kaze CSS/import setup",
-      pattern: /existing CSS import[\s\S]*available package version[\s\S]*existing component usage patterns/i,
+      pattern:
+        /existing CSS import[\s\S]*available package version[\s\S]*existing component usage patterns/i,
     },
     {
       label: "Do not guess Kaze API props",
@@ -2108,12 +2701,14 @@ function validateClinePrompt(prompt: string | undefined): string[] {
     },
   ];
 
-  const warnings = requiredRules
+  const missingRuleWarnings = requiredRules
     .filter(({ pattern }) => !pattern.test(prompt))
     .map(
       ({ label }) =>
         `cline-implementation-prompt.md is missing required verification rule: ${label}.`,
     );
+
+  const warnings: string[] = [...missingRuleWarnings];
 
   if (clinePromptEmbedsPackManifest(prompt)) {
     warnings.push(
@@ -2257,11 +2852,14 @@ function validateQaChecklist(checklist: string | undefined): string[] {
     },
   ];
 
-  warnings.push(...unsafePatterns
-    .filter(({ pattern }) => pattern.test(checklist))
-    .map(
-      ({ label }) => `qa-checklist.md assumes unconfirmed behaviour: ${label}.`,
-    ));
+  warnings.push(
+    ...unsafePatterns
+      .filter(({ pattern }) => pattern.test(checklist))
+      .map(
+        ({ label }) =>
+          `qa-checklist.md assumes unconfirmed behaviour: ${label}.`,
+      ),
+  );
 
   const hasPlainBulletChecklistItem = checklist
     .split("\n")
@@ -2344,7 +2942,11 @@ function uniqueStrings(values: string[]): string[] {
 
 function repairFakeKazeNames(text: string): string {
   return text.replace(/\bKaze[A-Z][A-Za-z0-9]*\b/g, (name) => {
-    return WRONG_KAZE_NAME_REPAIRS[name] ?? "Unknown / verify from Kaze";
+    return (
+      repairFakeKazeNameFromCatalog(name) ??
+      WRONG_KAZE_NAME_REPAIRS[name] ??
+      "Unknown / verify from Kaze"
+    );
   });
 }
 
@@ -2359,15 +2961,16 @@ function protectAllowedIncorrectKazeExamples(text: string): {
   };
 
   const protectedText = text
-    .replace(/Incorrect:\s*```[\s\S]*?```/gi, protect)
+    .replace(/(?:\*\*)?Incorrect:(?:\*\*)?\s*```[\s\S]*?```/gi, protect)
+    .replace(/^.*Do not use fake Kaze-prefixed names such as .*$/gim, protect)
     .replace(
-      /^.*Do not use fake Kaze-prefixed names such as .*$/gim,
+      /^.*Does not use fake Kaze-prefixed components such as .*$/gim,
       protect,
     )
-    .replace(
-      /^.*Never use fake prefixed aliases such as .*$/gim,
-      protect,
-    );
+    .replace(/^.*Does not import `?Kaze[A-Za-z0-9]+`?.*$/gim, protect)
+    .replace(/^.*Never use fake prefixed aliases such as .*$/gim, protect)
+    .replace(/## Forbidden Fake Names[\s\S]*?(?=\n## |\n# |$)/gi, protect)
+    .replace(/^.*Do not invent components such as .*$/gim, protect);
 
   return {
     text: protectedText,
@@ -2383,7 +2986,7 @@ function protectAllowedIncorrectKazeExamples(text: string): {
 function stripAllowedIncorrectKazeExamples(text: string): string {
   return text
     .replace(
-      /Incorrect:\s*```[\s\S]*?```/gi,
+      /(?:\*\*)?Incorrect:(?:\*\*)?\s*```[\s\S]*?```/gi,
       "Incorrect: [fake Kaze import example omitted for validation]",
     )
     .replace(
@@ -2391,8 +2994,24 @@ function stripAllowedIncorrectKazeExamples(text: string): string {
       "Do not use fake Kaze-prefixed names such as [examples omitted for validation].",
     )
     .replace(
+      /^.*Does not use fake Kaze-prefixed components such as .*$/gim,
+      "Does not use fake Kaze-prefixed components such as [examples omitted for validation].",
+    )
+    .replace(
+      /^.*Does not import `?Kaze[A-Za-z0-9]+`?.*$/gim,
+      "Does not import [fake Kaze export omitted for validation].",
+    )
+    .replace(
       /^.*Never use fake prefixed aliases such as .*$/gim,
       "Never use fake prefixed aliases such as [examples omitted for validation].",
+    )
+    .replace(
+      /## Forbidden Fake Names[\s\S]*?(?=\n## |\n# |$)/gi,
+      "## Forbidden Fake Names\n[fake Kaze names omitted for validation]",
+    )
+    .replace(
+      /^.*Do not invent components such as .*$/gim,
+      "Do not invent fake Kaze components such as [examples omitted for validation].",
     );
 }
 
@@ -2409,11 +3028,7 @@ function getAllowedKazeComponents(catalog: string): Set<string> {
       // Fall through to markdown parsing
     }
   }
-  return new Set(
-    catalog.match(
-      /\b(?:AgGridTable|Alert|Avatar|Badge|Breadcrumb|Button|Checkbox|CheckboxDropdown|Collapse|ContextMenu|Datepicker|Dropdown|Lozenge|Modal|Notification|Pagination|Pills|Progress|Radio|RadioGroup|Segmented|Slider|Steps|Swatch|Table|Tabs|Tag|TextArea|TextField|Timepicker|Toast|Toggle|Tooltip|Typography|Upload|notification|useNotification)\b/g,
-    ) ?? [],
-  );
+  return new Set(getConfirmedKazeExports());
 }
 
 function replaceUnconfirmedKazeComponents(
@@ -2432,7 +3047,11 @@ function replaceUnconfirmedKazeComponents(
       }
 
       replaced.add(component);
-      return WRONG_KAZE_NAME_REPAIRS[component] ?? "Unknown / verify from Kaze";
+      return (
+        repairFakeKazeNameFromCatalog(component) ??
+        WRONG_KAZE_NAME_REPAIRS[component] ??
+        "Unknown / verify from Kaze"
+      );
     },
   );
 

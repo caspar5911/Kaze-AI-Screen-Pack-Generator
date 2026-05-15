@@ -8,6 +8,20 @@ type ZipEntry = {
 
 const encoder = new TextEncoder();
 const crcTable = createCrcTable();
+const realExportContradictionPatterns = [
+  /Forbidden\s+(?:Prefixed\s+)?Names:\s*.*`?\b(?:Button|TextField|Dropdown|Avatar|Typography)\b`?/i,
+  /fake Kaze-prefixed components such as\s+`?\b(?:Button|TextField|Dropdown|Avatar|Typography)\b`?/i,
+  /Does not use fake Kaze-prefixed components such as\s+`?\b(?:Button|TextField|Dropdown|Avatar|Typography)\b`?/i,
+  /Does not import\s+`?\b(?:Button|TextField|Dropdown|Avatar|Typography)\b`?/i,
+  /`?\b(?:Button|TextField|Dropdown|Avatar|Typography)\b`?\s+(?:is|are)\s+(?:fake|invalid|wrong|forbidden)/i,
+  /(?:fake|invalid|wrong|forbidden)\s+(?:Kaze\s+)?(?:exports?|names?|components?)\s*[:\-][^\n]*\b(?:Button|TextField|Dropdown|Avatar|Typography)\b/i,
+  /(?:\*\*)?(?:Wrong|Incorrect):(?:\*\*)?\s*`?import\s*{[^}]*\b(?:Button|TextField|Dropdown|Avatar|Typography)\b[^}]*}/i,
+  /Invalid:\s*Do not use fake prefixed names like\s*`?\b(?:Button|TextField|Dropdown|Avatar|Typography)\b`?/i,
+];
+const fakeKazeImportPattern =
+  /import\s*{\s*[^}]*\b(?:KazeButton|KazeInput|KazeSelect|KazeAvatar|KazeTypography)\b[^}]*}\s*from\s*["']@pcs-security\/kaze-ui-library["']/i;
+const wrongMarkerPattern =
+  /WRONG|Incorrect|do not use|fake Kaze-prefixed|invalid|do not import/i;
 
 export async function downloadClineReadyZip(params: {
   files: GeneratedFiles;
@@ -16,6 +30,7 @@ export async function downloadClineReadyZip(params: {
   zipFilename: string;
 }): Promise<void> {
   const archiveRoot = toArchiveRootName(params.projectName);
+  validateClineReadyFileContent(params.files);
   const markdownEntries = EXPECTED_FILES
     .map((filename) => ({
       filename: `${archiveRoot}/${filename}`,
@@ -79,6 +94,42 @@ function directoryEntry(filename: string): ZipEntry {
     content: new Uint8Array(0),
     isDirectory: true,
   };
+}
+
+function validateClineReadyFileContent(files: GeneratedFiles): void {
+  const errors: string[] = [];
+
+  EXPECTED_FILES.forEach((filename) => {
+    const content = files[filename] ?? "";
+
+    if (!content.trim()) {
+      return;
+    }
+
+    if (realExportContradictionPatterns.some((pattern) => pattern.test(content))) {
+      errors.push(
+        `${filename}: Real Kaze exports must not be described as fake, invalid, wrong, or forbidden.`,
+      );
+    }
+
+    const fakeImportIndex = content.search(fakeKazeImportPattern);
+    if (fakeImportIndex >= 0) {
+      const contextWindow = content.slice(
+        Math.max(0, fakeImportIndex - 300),
+        fakeImportIndex + 500,
+      );
+
+      if (!wrongMarkerPattern.test(contextWindow)) {
+        errors.push(
+          `${filename}: Fake Kaze-prefixed import appears without being clearly marked as wrong.`,
+        );
+      }
+    }
+  });
+
+  if (errors.length > 0) {
+    throw new Error(["Pack validation failed:", ...errors.map((error) => `- ${error}`)].join(" "));
+  }
 }
 
 function buildReadmeForCline(projectName: string, screenshots: File[]): string {
@@ -167,6 +218,21 @@ import path from "node:path";
 const root = process.cwd();
 
 const requiredFiles = ${JSON.stringify(requiredFiles, null, 2)};
+const markdownFiles = requiredFiles.filter((file) => file.endsWith(".md"));
+const contradictionPatterns = [
+  /Forbidden\\s+(?:Prefixed\\s+)?Names:\\s*.*\`?\\b(?:Button|TextField|Dropdown|Avatar|Typography)\\b\`?/i,
+  /fake Kaze-prefixed components such as\\s+\`?\\b(?:Button|TextField|Dropdown|Avatar|Typography)\\b\`?/i,
+  /Does not use fake Kaze-prefixed components such as\\s+\`?\\b(?:Button|TextField|Dropdown|Avatar|Typography)\\b\`?/i,
+  /Does not import\\s+\`?\\b(?:Button|TextField|Dropdown|Avatar|Typography)\\b\`?/i,
+  /\`?\\b(?:Button|TextField|Dropdown|Avatar|Typography)\\b\`?\\s+(?:is|are)\\s+(?:fake|invalid|wrong|forbidden)/i,
+  /(?:fake|invalid|wrong|forbidden)\\s+(?:Kaze\\s+)?(?:exports?|names?|components?)\\s*[:\\-][^\\n]*\\b(?:Button|TextField|Dropdown|Avatar|Typography)\\b/i,
+  /(?:\\*\\*)?(?:Wrong|Incorrect):(?:\\*\\*)?\\s*\`?import\\s*{[^}]*\\b(?:Button|TextField|Dropdown|Avatar|Typography)\\b[^}]*}/i,
+  /Invalid:\\s*Do not use fake prefixed names like\\s*\`?\\b(?:Button|TextField|Dropdown|Avatar|Typography)\\b\`?/i,
+];
+const fakeKazeImportPattern =
+  /import\\s*{\\s*[^}]*\\b(?:KazeButton|KazeInput|KazeSelect|KazeAvatar|KazeTypography)\\b[^}]*}\\s*from\\s*["']@pcs-security\\/kaze-ui-library["']/i;
+const wrongMarkerPattern =
+  /WRONG|Incorrect|do not use|fake Kaze-prefixed|invalid|do not import/i;
 
 const forbiddenPatterns = [
   {
@@ -226,8 +292,8 @@ const requiredTextChecks = [
   },
   {
     file: "kaze-component-mapping.md",
-    text: "Real Export Rule",
-    message: "Mapping must include Real Export Rule.",
+    text: "Import Rule",
+    message: "Mapping must include Import Rule.",
   },
   {
     file: "kaze-component-mapping.md",
@@ -281,6 +347,36 @@ for (const check of forbiddenPatterns) {
 
   if (hasForbidden && !allowed) {
     errors.push(check.message);
+  }
+}
+
+for (const markdownFile of markdownFiles) {
+  const fullPath = path.join(root, markdownFile);
+  if (!fs.existsSync(fullPath)) continue;
+
+  const content = fs.readFileSync(fullPath, "utf8");
+
+  for (const pattern of contradictionPatterns) {
+    if (pattern.test(content)) {
+      errors.push(
+        \`\${markdownFile}: Real Kaze exports must not be described as fake, invalid, wrong, or forbidden.\`
+      );
+      break;
+    }
+  }
+
+  const fakeImportIndex = content.search(fakeKazeImportPattern);
+  if (fakeImportIndex >= 0) {
+    const contextWindow = content.slice(
+      Math.max(0, fakeImportIndex - 300),
+      fakeImportIndex + 500
+    );
+
+    if (!wrongMarkerPattern.test(contextWindow)) {
+      errors.push(
+        \`\${markdownFile}: Fake Kaze-prefixed import appears without being clearly marked as wrong.\`
+      );
+    }
   }
 }
 

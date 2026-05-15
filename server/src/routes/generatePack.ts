@@ -171,7 +171,10 @@ generatePackRouter.post(
       // Stage 3: Cline + QA (local deterministic templates)
       const clineStart = Date.now();
       const clineImplementationPromptMarkdown =
-        buildLocalClineImplementationPrompt();
+        buildLocalClineImplementationPrompt({
+          fields,
+          fileMapEntries: fileMap.entries,
+        });
       const qaChecklistMarkdown = buildLocalQaChecklist();
       const clineQaRawResponse = [
         "--- File: cline-implementation-prompt.md ---",
@@ -188,7 +191,6 @@ generatePackRouter.post(
         "cline-implementation-prompt.md": clineImplementationPromptMarkdown,
         "qa-checklist.md": qaChecklistMarkdown,
       };
-      const clineQaWarnings: string[] = [];
 
       const rawResponses = {
         "stage-1-manifest-local": manifestRawResponse,
@@ -212,9 +214,6 @@ generatePackRouter.post(
       const warnings = [
         ...new Set([
           ...fileMap.warnings,
-          ...manifestParsed.warnings,
-          ...handoffMappingParsed.warnings,
-          ...clineQaWarnings,
           ...finalParsed.warnings,
         ]),
       ];
@@ -222,6 +221,42 @@ generatePackRouter.post(
         finalParsed.quality,
         warnings,
       );
+      const responseMeta = {
+        mode: "local-manifest-local-cline-qa-staged",
+        fastMode,
+        timingsMs: {
+          stage1ManifestLocal: stage1ManifestLocalMs,
+          stage2HandoffMapping: stage2HandoffMappingMs,
+          stage3ClineQa: stage3ClineQaMs,
+          validation: validationMs,
+        },
+        promptSizes: {
+          stage2HandoffMapping: stage2PromptChars,
+          stage3ClineQa: clineQaRawResponse.length,
+        },
+        imagePayloadKb: stage2ImagePayloadKb,
+        ai: {
+          timeoutMs: aiRequestTimeoutMs,
+          endpointMode: stage2EndpointMode,
+          modelName: fields.modelName,
+        },
+      };
+
+      if (quality.status === "failed") {
+        response.status(422).json({
+          error: [
+            "Pack validation failed:",
+            ...quality.issues.map((issue) => `- ${issue}`),
+          ].join("\n"),
+          files: finalParsed.files,
+          warnings,
+          rawResponse,
+          rawResponses,
+          quality,
+          meta: responseMeta,
+        });
+        return;
+      }
 
       response.json({
         files: finalParsed.files,
@@ -229,26 +264,7 @@ generatePackRouter.post(
         rawResponse,
         rawResponses,
         quality,
-        meta: {
-          mode: "local-manifest-local-cline-qa-staged",
-          fastMode,
-          timingsMs: {
-            stage1ManifestLocal: stage1ManifestLocalMs,
-            stage2HandoffMapping: stage2HandoffMappingMs,
-            stage3ClineQa: stage3ClineQaMs,
-            validation: validationMs,
-          },
-          promptSizes: {
-            stage2HandoffMapping: stage2PromptChars,
-            stage3ClineQa: clineQaRawResponse.length,
-          },
-          imagePayloadKb: stage2ImagePayloadKb,
-          ai: {
-            timeoutMs: aiRequestTimeoutMs,
-            endpointMode: stage2EndpointMode,
-            modelName: fields.modelName,
-          },
-        },
+        meta: responseMeta,
       });
     } catch (error) {
       next(error);
