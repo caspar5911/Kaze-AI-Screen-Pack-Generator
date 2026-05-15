@@ -65,6 +65,408 @@ export function buildPackInputMarkdown(
   ].join("\n");
 }
 
+export function buildManifestPrompt(params: {
+  packInputMarkdown: string;
+  fileMapText: string;
+}): string {
+  return `You are a Kaze UI Screen Pack Manifest Generator.
+
+Generate only pack-manifest.md.
+
+Input:
+- pack-input.md
+- File Map
+- Attached screenshots
+
+Context:
+- Screenshots are exported from Figma/Sketch as images.
+- Each screenshot represents one screen or one state of a screen.
+- The manifest is used to organize screenshots before generating handoff and implementation documents.
+- Do not generate React code.
+- Do not mention Kaze components.
+- Do not mention Kaze tokens.
+- Do not mention CSS.
+- Do not mention API endpoints.
+- Do not mention route names or route details.
+- Do not mention Storybook.
+- Do not include implementation instructions.
+
+Filename rules:
+- Use only filenames from the File Map.
+- Do not invent filenames.
+- Do not rename filenames.
+- Do not shorten filenames.
+- Derive ScreenName, State, and Viewport strictly from the filename.
+
+Filename parsing:
+<ScreenName>_<State>_<Viewport>.png
+
+Example:
+HomeGreeting_Default_Desktop.png
+ScreenName = HomeGreeting
+State = Default
+Viewport = Desktop
+
+Screen heading rule:
+Use ScreenName only.
+
+Correct:
+### HomeGreeting
+
+Incorrect:
+### Screen: HomeGreeting
+### Screen Name: HomeGreeting
+### HomeGreeting_Default
+
+State rule:
+Do not label landing/home screens as Empty state unless the filename state is Empty or the screenshot clearly shows an empty data/table/list state.
+
+Required pack-manifest.md sections:
+# Pack Manifest
+
+## Project / Feature Name
+
+## Short Description
+
+## Design Source
+
+## Screens
+
+For each screen:
+### <ScreenName>
+
+Purpose:
+...
+
+Screenshots:
+- \`<ExactFilename>\`
+  - State: \`<State>\`
+  - Viewport: \`<Viewport>\`
+
+Main Visible Actions:
+- ...
+
+## Unknowns / Needs Confirmation
+- ...
+
+For the HomeGreeting screen, include these exact unknowns:
+- Navigation behaviour is not confirmed.
+- Avatar interaction is not confirmed.
+- Thinking selector options are not visible.
+- White circular action button behaviour is not confirmed.
+- Quick action behaviours are not confirmed.
+- Voice input behaviour is not confirmed.
+
+Manifest scope:
+pack-manifest.md must only include:
+- Project / feature name
+- Short description
+- Design source
+- Screens grouped by ScreenName
+- Screenshot list
+- Detected state
+- Detected viewport
+- Inferred screen purpose
+- Main visible actions
+- Unknowns / needs confirmation
+
+pack-manifest.md must NOT include:
+- Kaze component names
+- Kaze component verification
+- Kaze token details
+- color token details
+- spacing details
+- CSS values
+- px values
+- route names
+- route details
+- API endpoints
+- Storybook instructions
+- implementation instructions
+
+Output rules:
+- Output only this file marker and content.
+- Do not include reasoning, analysis, citations, <details> blocks, or commentary.
+
+Use exact marker:
+
+--- File: pack-manifest.md ---
+[content]
+
+PACK INPUT:
+${params.packInputMarkdown}
+
+FILE MAP:
+${params.fileMapText}`;
+}
+
+export function buildHandoffMappingPrompt(params: {
+  packInputMarkdown: string;
+  packManifestMarkdown: string;
+  kazeComponentCatalog: string;
+  fileMapText: string;
+}): string {
+  return `You are a Kaze UI Handoff and Component Mapping Generator.
+
+Generate only:
+1. handoff.md
+2. kaze-component-mapping.md
+
+Input:
+- pack-input.md
+- sanitized pack-manifest.md
+- kaze-component-catalog.md
+- File Map
+- Attached screenshots
+
+Context:
+- Designs follow Kaze UI.
+- Icons use Font Awesome where available.
+- Standard Kaze states such as loading, empty, error, disabled, validation, modal, and table states already exist unless screenshots show custom behaviour.
+- Do not generate React code.
+
+Critical Kaze component rules:
+- Use kaze-component-catalog.md as the only trusted list of confirmed Kaze components.
+- Allowed exact Kaze components are ONLY those listed under Confirmed Kaze Components.
+- Do not invent Kaze component names or props.
+- If a UI pattern is not confirmed in the catalog, output:
+  Unknown / verify from Kaze
+- Use "Intended Kaze Pattern" when exact component is not confirmed.
+
+Do not output these unless explicitly listed in kaze-component-catalog.md:
+- KazeSidebar
+- KazeAvatar
+- KazeCard
+- KazeIcon
+- KazeLayout
+- KazeText
+- KazeTypography
+- KazeFlex
+- KazeBox
+- KazeHeading
+- KazeGreeting
+- KazePromptBar
+
+For sidebar, avatar, typography, layout, card, icon wrapper, or prompt bar:
+- Output Unknown / verify from Kaze unless the catalog confirms a component.
+
+Visual accuracy rules:
+- Do not output exact pixel measurements unless provided in pack-input.md or design specs.
+- If estimating spacing, sizing, colours, or radius from screenshot, label them as approximate visual estimate.
+- Prefer Kaze tokens and existing project styles over hardcoded pixel/hex values.
+- Do not invent animation values such as scale, transition duration, hover lift, or custom focus effects.
+- For unknown behaviours, write "Use standard Kaze behaviour" instead of inventing custom behaviour.
+- For unknown icons, write "Unknown / verify Font Awesome icon".
+
+handoff.md must include:
+- Overview
+- Screenshots
+- Visible layout
+- Main user actions
+- Visual notes
+- Required states
+- Unknowns / needs confirmation
+
+State rules:
+For HomeGreeting_Default_Desktop.png or similar landing screens:
+- Default: shown in screenshot
+- Input focused: likely, use standard Kaze/project input behaviour
+- Input with text: likely, implement only if existing project pattern supports action enable/disable behaviour
+- Processing/loading: unknown, mark TODO unless confirmed
+- Error: unknown, only if submit/search action is implemented
+- Disabled: unknown, only if rules require it
+
+Do not include:
+- Empty
+- Default / Empty
+- Initial / Empty
+- Empty no history
+
+unless filename state is Empty or UI clearly shows an empty data/list/table state.
+
+kaze-component-mapping.md must include:
+- Source files
+- Rule section
+- Screen-specific mapping table
+- Icon mapping table
+- Confidence levels
+- Unknown / verify from Kaze where needed
+
+Mapping table format:
+| UI Element | Intended Kaze Pattern | Exact Kaze Component | Confidence | Notes |
+
+Exact Kaze Component cell rules:
+- Each Exact Kaze Component cell must contain only one clear value.
+- Use either a confirmed component from the catalog, OR Unknown / verify from Kaze.
+- Do not write ambiguous values like Unknown / verify from Kaze / KazeButton.
+- For the plus/attachment icon button, use:
+  - Exact Kaze Component: KazeButton
+  - Notes: Use as icon button if supported by KazeButton props; otherwise verify project pattern.
+
+Icon wording:
+- For high-confidence icons, write "Likely Font Awesome [icon type]; verify project icon setup."
+- For uncertain icons, write "Unknown / verify Font Awesome icon."
+- Do not use vague wording like "Known standard icon."
+
+Output rules:
+- Output only the two file sections.
+- Do not include reasoning, analysis, citations, <details> blocks, or commentary.
+
+Use exact markers:
+
+--- File: handoff.md ---
+[content]
+
+--- File: kaze-component-mapping.md ---
+[content]
+
+PACK INPUT:
+${params.packInputMarkdown}
+
+PACK MANIFEST:
+${params.packManifestMarkdown}
+
+KAZE COMPONENT CATALOG:
+${params.kazeComponentCatalog}
+
+FILE MAP:
+${params.fileMapText}`;
+}
+
+export function buildClineQaPrompt(params: {
+  packInputMarkdown: string;
+  packManifestMarkdown: string;
+  handoffMarkdown: string;
+  kazeComponentMappingMarkdown: string;
+  kazeComponentCatalog: string;
+}): string {
+  return `You are a Kaze UI Cline Prompt and QA Checklist Generator.
+
+Generate only:
+1. cline-implementation-prompt.md
+2. qa-checklist.md
+
+Input:
+- pack-input.md
+- sanitized pack-manifest.md
+- sanitized handoff.md
+- sanitized kaze-component-mapping.md
+- kaze-component-catalog.md
+
+Context:
+- This is for an existing React TypeScript project using Kaze UI.
+- The generated Cline prompt must be safe for a coding agent.
+- Do not generate final React code.
+- Do not invent target project structure.
+
+cline-implementation-prompt.md must include this exact section:
+
+## Critical First Step
+
+Before writing code:
+
+1. Inspect actual project structure.
+2. Inspect existing pages/screens that already use Kaze.
+3. Inspect Kaze package exports.
+4. Inspect Kaze Storybook/docs if available.
+5. Confirm exact Kaze component names and props.
+6. Do not use guessed Kaze components.
+7. If a suggested Kaze component does not exist, use the closest approved Kaze/project pattern and report it.
+
+Implementation rules must include:
+- Use Kaze components where available.
+- Do not use raw input/button/select/table/modal/form controls if Kaze equivalents exist.
+- Use raw HTML only for non-interactive layout wrappers.
+- Do not use Ant Design directly if Kaze wraps it.
+- Do not invent routes.
+- Do not invent APIs.
+- Do not invent dropdown values.
+- Do not invent permission rules.
+- Mark unknown behaviour as TODO.
+- Run typecheck/build if available.
+- Report unresolved unknowns and fallback choices.
+
+Fallback rule must include:
+If a Kaze component is not verified:
+1. First search existing project patterns.
+2. Use the closest approved existing project pattern.
+3. Use raw HTML only for non-interactive layout wrappers.
+4. Do not use raw input/button/select if Kaze equivalents exist.
+5. Document the fallback clearly.
+
+Final reporting must include:
+After implementation, report:
+- Files created or modified
+- Confirmed Kaze components used
+- Fallbacks used
+- TODOs left unresolved
+- Typecheck/build result
+
+State requirements must not assume unknown behaviour:
+- Default: shown in screenshot.
+- Input focused: use standard Kaze/project input focus behaviour.
+- Input with text: implement only if existing project pattern supports action enable/disable behaviour.
+- Processing/loading: mark as TODO unless behaviour is confirmed.
+- Error: mark as TODO unless validation or submit behaviour is confirmed.
+
+qa-checklist.md must not assume unconfirmed behaviour works.
+
+Bad QA wording:
+- Sidebar navigation routes to correct sections.
+- Avatar click opens profile menu.
+- Voice button triggers expected audio state.
+- Thinking dropdown opens and allows selection.
+- Thinking selector displays options and updates on change.
+- Quick action buttons trigger appropriate flows.
+- Microphone button triggers audio input.
+- White action button triggers submission.
+- Screen reader announces dynamic state changes or TODO placeholders correctly.
+
+Good QA wording:
+- Sidebar navigation is implemented or marked as TODO.
+- Avatar interaction is implemented or marked as TODO.
+- Voice button behaviour is implemented or marked as TODO.
+- Thinking selector behaviour is implemented or marked as TODO.
+- Quick action behaviour is implemented or marked as TODO.
+- Microphone button behaviour is implemented or marked as TODO.
+- White action button behaviour is implemented or marked as TODO.
+- Screen reader behaviour is verified for implemented dynamic states.
+
+qa-checklist.md must include:
+- Visual checks
+- Functional checks
+- Kaze compliance checks
+- Code quality checks
+- Accessibility checks
+
+Output rules:
+- Output only the two file sections.
+- Do not include reasoning, analysis, citations, <details> blocks, or commentary.
+
+Use exact markers:
+
+--- File: cline-implementation-prompt.md ---
+[content]
+
+--- File: qa-checklist.md ---
+[content]
+
+PACK INPUT:
+${params.packInputMarkdown}
+
+PACK MANIFEST:
+${params.packManifestMarkdown}
+
+HANDOFF:
+${params.handoffMarkdown}
+
+KAZE COMPONENT MAPPING:
+${params.kazeComponentMappingMarkdown}
+
+KAZE COMPONENT CATALOG:
+${params.kazeComponentCatalog}`;
+}
+
 export function buildAiPrompt(params: {
   packInputMarkdown: string;
   kazeComponentCatalog: string;

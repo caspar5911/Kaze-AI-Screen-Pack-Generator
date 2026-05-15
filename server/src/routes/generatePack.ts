@@ -7,13 +7,18 @@ import multer from "multer";
 import { callAiEndpoint } from "../services/aiClient.js";
 import { buildFileMap } from "../services/fileMap.js";
 import {
-  buildAiPrompt,
+  buildClineQaPrompt,
+  buildHandoffMappingPrompt,
+  buildManifestPrompt,
   buildPackInputMarkdown,
   loadKazeComponentCatalog
 } from "../services/promptBuilder.js";
 import {
   applyGenerationWarningsToQuality,
-  parseAiResponse
+  parseAllGeneratedFiles,
+  parseClineQaResponse,
+  parseHandoffMappingResponse,
+  parseManifestResponse
 } from "../services/responseParser.js";
 import { isAllowedImageFilename } from "../utils/filenameParser.js";
 
@@ -82,38 +87,114 @@ generatePackRouter.post(
         fileMap.text
       );
       const kazeComponentCatalog = await loadKazeComponentCatalog();
-      const prompt = buildAiPrompt({
+      const parsedFilenames = fileMap.entries.map((entry) => ({
+        filename: entry.filename,
+        screenName: entry.parsed.screenName,
+        state: entry.parsed.state,
+        viewport: entry.parsed.viewport
+      }));
+      const allowedFilenames = fileMap.entries.map((entry) => entry.filename);
+      const screenshots = fileMap.entries.map((entry) => ({
+        path: entry.path,
+        mimetype: entry.mimetype
+      }));
+
+      const manifestPrompt = buildManifestPrompt({
         packInputMarkdown,
+        fileMapText: fileMap.text
+      });
+      const manifestRawResponse = await callAiEndpoint({
+        endpointUrl: fields.aiEndpointUrl,
+        modelName: fields.modelName,
+        prompt: manifestPrompt,
+        screenshots
+      });
+      const manifestParsed = parseManifestResponse({
+        responseText: manifestRawResponse,
+        allowedFilenames,
+        kazeComponentCatalog,
+        parsedFilenames
+      });
+      const packManifestMarkdown = manifestParsed.files["pack-manifest.md"] ?? "";
+
+      const handoffMappingPrompt = buildHandoffMappingPrompt({
+        packInputMarkdown,
+        packManifestMarkdown,
         kazeComponentCatalog,
         fileMapText: fileMap.text
       });
-      const aiResponse = await callAiEndpoint({
+      const handoffMappingRawResponse = await callAiEndpoint({
         endpointUrl: fields.aiEndpointUrl,
         modelName: fields.modelName,
-        prompt,
-        screenshots: fileMap.entries.map((entry) => ({
-          path: entry.path,
-          mimetype: entry.mimetype
-        }))
+        prompt: handoffMappingPrompt,
+        screenshots
       });
-      const parsed = parseAiResponse({
-        responseText: aiResponse,
-        allowedFilenames: fileMap.entries.map((entry) => entry.filename),
+      const handoffMappingParsed = parseHandoffMappingResponse({
+        responseText: handoffMappingRawResponse,
+        allowedFilenames,
         kazeComponentCatalog,
-        parsedFilenames: fileMap.entries.map((entry) => ({
-          filename: entry.filename,
-          screenName: entry.parsed.screenName,
-          state: entry.parsed.state,
-          viewport: entry.parsed.viewport
-        }))
+        parsedFilenames
       });
-      const warnings = [...new Set([...fileMap.warnings, ...parsed.warnings])];
-      const quality = applyGenerationWarningsToQuality(parsed.quality, warnings);
+      const handoffMarkdown = handoffMappingParsed.files["handoff.md"] ?? "";
+      const kazeComponentMappingMarkdown =
+        handoffMappingParsed.files["kaze-component-mapping.md"] ?? "";
+
+      const clineQaPrompt = buildClineQaPrompt({
+        packInputMarkdown,
+        packManifestMarkdown,
+        handoffMarkdown,
+        kazeComponentMappingMarkdown,
+        kazeComponentCatalog
+      });
+      const clineQaRawResponse = await callAiEndpoint({
+        endpointUrl: fields.aiEndpointUrl,
+        modelName: fields.modelName,
+        prompt: clineQaPrompt,
+        screenshots: []
+      });
+      const clineQaParsed = parseClineQaResponse({
+        responseText: clineQaRawResponse,
+        allowedFilenames,
+        kazeComponentCatalog,
+        parsedFilenames
+      });
+
+      const rawResponses = {
+        "stage-1-manifest": manifestRawResponse,
+        "stage-2-handoff-mapping": handoffMappingRawResponse,
+        "stage-3-cline-qa": clineQaRawResponse
+      };
+      const rawResponse = formatStageRawResponses(rawResponses);
+      const finalParsed = parseAllGeneratedFiles({
+        files: mergeGeneratedFiles(
+          manifestParsed.files,
+          handoffMappingParsed.files,
+          clineQaParsed.files
+        ),
+        rawResponse,
+        allowedFilenames,
+        kazeComponentCatalog,
+        parsedFilenames
+      });
+      const warnings = [
+        ...new Set([
+          ...fileMap.warnings,
+          ...manifestParsed.warnings,
+          ...handoffMappingParsed.warnings,
+          ...clineQaParsed.warnings,
+          ...finalParsed.warnings
+        ])
+      ];
+      const quality = applyGenerationWarningsToQuality(
+        finalParsed.quality,
+        warnings
+      );
 
       response.json({
-        files: parsed.files,
+        files: finalParsed.files,
         warnings,
-        rawResponse: parsed.rawResponse,
+        rawResponse,
+        rawResponses,
         quality
       });
     } catch (error) {
@@ -166,4 +247,28 @@ function getOptionalString(value: unknown): string {
 
 async function cleanupFiles(files: Express.Multer.File[]): Promise<void> {
   await Promise.allSettled(files.map((file) => fs.rm(file.path, { force: true })));
+}
+
+function formatStageRawResponses(rawResponses: Record<string, string>): string {
+  return Object.entries(rawResponses)
+    .map(([stageName, rawResponse]) =>
+      [`--- Stage: ${stageName} ---`, rawResponse.trim()].join("\n")
+    )
+    .join("\n\n");
+}
+
+function mergeGeneratedFiles(
+  ...fileSets: Array<Partial<Record<string, string | undefined>>>
+): Partial<Record<string, string>> {
+  const merged: Partial<Record<string, string>> = {};
+
+  fileSets.forEach((fileSet) => {
+    Object.entries(fileSet).forEach(([filename, content]) => {
+      if (content) {
+        merged[filename] = content;
+      }
+    });
+  });
+
+  return merged;
 }

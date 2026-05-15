@@ -25,6 +25,7 @@ export interface GeneratePackResponse {
   files: GeneratedFiles;
   warnings: string[];
   rawResponse: string;
+  rawResponses?: Record<string, string>;
   quality: GenerationQuality;
 }
 
