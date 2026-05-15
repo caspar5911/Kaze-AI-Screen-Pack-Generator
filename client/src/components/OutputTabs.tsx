@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { downloadMarkdownZip } from "../utils/downloadZip";
+import { downloadClineReadyZip } from "../utils/downloadZip";
 import {
   EXPECTED_FILES,
   type GeneratedFiles,
@@ -14,6 +14,7 @@ interface OutputTabsProps {
   warnings: string[];
   quality: GenerationQuality;
   projectName: string;
+  screenshots: File[];
   onRegenerate: () => void;
   isLoading: boolean;
 }
@@ -24,6 +25,7 @@ export function OutputTabs({
   warnings,
   quality,
   projectName,
+  screenshots,
   onRegenerate,
   isLoading
 }: OutputTabsProps) {
@@ -31,6 +33,7 @@ export function OutputTabs({
     EXPECTED_FILES[0]
   );
   const [copiedLabel, setCopiedLabel] = useState("");
+  const [downloadError, setDownloadError] = useState("");
   const tabs = useMemo<OutputTabName[]>(
     () => [...EXPECTED_FILES, "Raw Response"],
     []
@@ -59,10 +62,31 @@ export function OutputTabs({
     [files]
   );
 
+  useEffect(() => {
+    setDownloadError("");
+  }, [files, screenshots]);
+
   async function copyText(text: string, label: string) {
     await navigator.clipboard.writeText(text);
     setCopiedLabel(label);
     window.setTimeout(() => setCopiedLabel(""), 1800);
+  }
+
+  async function downloadZip() {
+    setDownloadError("");
+
+    try {
+      await downloadClineReadyZip({
+        files: zipReadyFiles,
+        screenshots,
+        projectName,
+        zipFilename: `${slugify(projectName)}-pack.zip`,
+      });
+    } catch (caught) {
+      setDownloadError(
+        caught instanceof Error ? caught.message : "ZIP validation failed.",
+      );
+    }
   }
 
   return (
@@ -92,17 +116,16 @@ export function OutputTabs({
           copiedLabel={copiedLabel}
           isLoading={isLoading}
           onCopy={copyText}
-          onDownload={() =>
-            downloadMarkdownZip(zipReadyFiles, `${slugify(projectName)}-pack.zip`)
-          }
+          onDownload={downloadZip}
           onRegenerate={onRegenerate}
         />
       </div>
 
-      {warnings.length > 0 && (
+      {(warnings.length > 0 || downloadError) && (
         <div className="warning-box warning-box--compact">
           <div className="warning-box__title">Generation Warnings</div>
           <ul>
+            {downloadError && <li>{downloadError}</li>}
             {warnings.map((warning) => (
               <li key={warning}>{warning}</li>
             ))}

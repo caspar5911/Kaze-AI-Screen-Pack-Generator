@@ -2,13 +2,19 @@ import type { GeneratePackResponse, PackFormState } from "../types";
 
 export async function generatePack(
   form: PackFormState,
-  screenshots: File[]
+  screenshots: File[],
 ): Promise<GeneratePackResponse> {
   const body = new FormData();
 
-  Object.entries(form).forEach(([key, value]) => {
-    body.append(key, value);
-  });
+  // Spread all form fields, converting boolean fastMode to string
+  body.append("projectName", form.projectName);
+  body.append("shortDescription", form.shortDescription);
+  body.append("designSource", form.designSource);
+  body.append("iconSystem", form.iconSystem);
+  body.append("additionalNotes", form.additionalNotes);
+  body.append("aiEndpointUrl", form.aiEndpointUrl);
+  body.append("modelName", form.modelName);
+  body.append("fastMode", form.fastMode ? "true" : "false");
 
   screenshots.forEach((file) => {
     body.append("screenshots", file, file.name);
@@ -16,7 +22,7 @@ export async function generatePack(
 
   const response = await fetch("/api/generate-pack", {
     method: "POST",
-    body
+    body,
   });
 
   const payload = await readJsonOrText(response);

@@ -2,6 +2,13 @@
 
 The generator returns five markdown files. Each file has a distinct purpose and should not duplicate responsibilities unnecessarily.
 
+The downloaded Cline-ready ZIP also includes:
+
+- `screenshots/` with the original uploaded screenshot files.
+- `README_FOR_CLINE.md` with deterministic usage instructions.
+- `validate-pack.mjs` for local pack validation before Cline/Codex use.
+- `cline-readiness-standard.md` with 10/10 readiness and automatic-fail rules.
+
 ## pack-manifest.md
 
 Purpose: High-level inventory of the generated pack.
@@ -11,6 +18,7 @@ Expected content:
 - Project / feature name
 - Short description
 - Design source
+- `## Pack Contents` with `README_FOR_CLINE.md`, all five markdown files, and exact screenshot paths
 - Screens grouped by ScreenName
 - Screenshot list
 - Detected state
@@ -26,6 +34,17 @@ Example:
 
 ## Project / Feature Name
 AI Assistant Home Screen
+
+## Pack Contents
+- `README_FOR_CLINE.md`
+- `validate-pack.mjs`
+- `cline-readiness-standard.md`
+- `pack-manifest.md`
+- `handoff.md`
+- `kaze-component-mapping.md`
+- `cline-implementation-prompt.md`
+- `qa-checklist.md`
+- `screenshots/HomeGreeting_Default_Desktop.png`
 
 ## Screens
 
@@ -68,21 +87,33 @@ Safe required states for a default input screen:
 
 ## kaze-component-mapping.md
 
-Purpose: Map visible UI elements to known Kaze components or verification tasks.
+Purpose: Map visible UI elements to confirmed Kaze exports or verification tasks.
 
 Required table pattern:
 
 ```md
-| UI Element | Intended Kaze Pattern | Exact Kaze Component | Confidence | Notes |
+| UI Element | Intended Kaze Pattern | Exact Kaze Export | Confidence | Notes |
 |---|---|---|---|---|
 ```
 
 Rules:
 
-- If the component is confirmed in the catalog, exact component may be used.
+- If the export is confirmed in the catalog, the exact export may be used.
 - If not confirmed, use `Unknown / verify from Kaze`.
-- Do not invent `Kaze*` component names.
+- Do not invent `Kaze*` prefixed names.
+- Do not list real exports such as `Button`, `TextField`, `Dropdown`, `Avatar`, or `Typography` under forbidden names.
+- Do not put Font Awesome icon names, notes, or mixed values in `Exact Kaze Export`.
 - For uncertain icons, use `Unknown / verify Font Awesome icon`.
+
+The real package is `@pcs-security/kaze-ui-library` v3.1.8 and it uses unprefixed named exports. Examples:
+
+- Button: `Button`, not `KazeButton`
+- Text input: `TextField`, not `KazeInput`
+- Dropdown/select: `Dropdown`, not `KazeSelect`
+- Avatar/profile badge: `Avatar`, not `KazeAvatar`
+- Typography/heading: `Typography`, not `KazeTypography`
+
+Sidebar/navigation rail, layout container, and prompt bar wrapper should stay `Unknown / verify from Kaze` unless actual project usage confirms an approved pattern.
 
 ## cline-implementation-prompt.md
 
@@ -97,6 +128,20 @@ Must include:
 - State requirements
 - Validation steps
 
+It must state that Kaze UI uses unprefixed named exports from `@pcs-security/kaze-ui-library`.
+
+Correct:
+
+```ts
+import { Button, TextField, Dropdown, Avatar, Typography } from "@pcs-security/kaze-ui-library";
+```
+
+Incorrect:
+
+```ts
+import { KazeButton, KazeInput, KazeSelect, KazeAvatar, KazeTypography } from "@pcs-security/kaze-ui-library";
+```
+
 Required critical first step:
 
 ```md
@@ -106,11 +151,11 @@ Before writing code:
 
 1. Inspect actual project structure.
 2. Inspect existing pages/screens that already use Kaze.
-3. Inspect Kaze package exports.
+3. Inspect @pcs-security/kaze-ui-library package exports.
 4. Inspect Kaze Storybook/docs if available.
-5. Confirm exact Kaze component names and props.
+5. Confirm exact Kaze export names and props.
 6. Do not use guessed Kaze components.
-7. If a suggested Kaze component does not exist, use the closest approved Kaze/project pattern and report it.
+7. If a suggested Kaze export does not work, use the closest approved Kaze/project pattern and report it.
 ```
 
 ## qa-checklist.md
@@ -150,8 +195,8 @@ Keep it high-level:
 
 Do not include:
 
-- Kaze component names
-- Kaze component verification
+- Kaze export names
+- Kaze export verification
 - Kaze token details
 - Design token details
 - Color or spacing details
@@ -188,7 +233,19 @@ Correct:
 - State: Default
 ```
 
-Bad Kaze component:
+Bad fake Kaze name:
+
+```md
+KazeButton
+```
+
+Correct:
+
+```md
+Button
+```
+
+Bad unconfirmed pattern:
 
 ```md
 KazeSidebar
@@ -220,10 +277,14 @@ The pack is ready when:
 - Every screenshot filename matches the File Map.
 - Screen headings use ScreenName only.
 - States match filenames and screenshots.
+- `pack-manifest.md` includes `## Pack Contents` and `README_FOR_CLINE.md`.
 - `pack-manifest.md` is high-level and clean.
 - Unknowns are grouped under `## Unknowns / Needs Confirmation`.
-- No fake Kaze components remain.
+- No fake Kaze-prefixed names remain.
 - No invented filenames remain.
+- No `Filename not in File Map` placeholder text remains.
 - No reasoning, analysis, citations, or `<details>` blocks remain.
 - QA wording does not assume unconfirmed behavior.
-- Cline prompt includes the required project inspection steps.
+- Cline prompt includes placement, screenshot usage, implementation sequence, anti-hallucination, Kaze setup, and final response format sections.
+- The downloaded ZIP includes `screenshots/`, `README_FOR_CLINE.md`, `validate-pack.mjs`, and `cline-readiness-standard.md`.
+- `node validate-pack.mjs` passes from the extracted ZIP root.

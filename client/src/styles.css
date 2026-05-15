@@ -231,6 +231,25 @@ h3 {
   padding: 12px;
 }
 
+.card-heading-row,
+.field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-heading-row {
+  align-items: flex-start;
+}
+
+.section-hint {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .field,
 .field-grid {
   display: grid;
@@ -291,6 +310,41 @@ h3 {
 .field textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.ai-assist-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted-strong);
+  padding: 0 9px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ai-assist-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ai-assist-button:disabled {
+  opacity: 0.6;
+}
+
+.ai-assist-error {
+  border: 1px solid var(--danger-border);
+  border-radius: 7px;
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  padding: 9px 10px;
+  font-size: 0.82rem;
+  line-height: 1.35;
 }
 
 .upload-target {
@@ -546,6 +600,48 @@ h3 {
   display: grid;
   gap: 10px;
   padding-top: 10px;
+}
+
+.fast-mode-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  padding: 8px 0;
+}
+
+.fast-mode-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.fast-mode-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.field .fast-mode-label {
+  color: var(--muted-strong);
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.field .fast-mode-description {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.field-hint {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 4px 0 0;
+  line-height: 1.35;
 }
 
 .model-combobox {
@@ -890,6 +986,15 @@ h3 {
   }
 
   .secondary-button {
+    width: 100%;
+  }
+
+  .card-heading-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .card-heading-row .ai-assist-button {
     width: 100%;
   }
 }

@@ -52,8 +52,12 @@ function buildOpenAiModelsUrl(endpoint: URL): URL {
   const modelUrl = new URL(endpoint);
   const normalizedPath = modelUrl.pathname.replace(/\/+$/, "");
 
-  if (normalizedPath.endsWith("/chat/completions")) {
+  if (!normalizedPath) {
+    modelUrl.pathname = "/v1/models";
+  } else if (normalizedPath.endsWith("/chat/completions")) {
     modelUrl.pathname = normalizedPath.replace(/\/chat\/completions$/, "/models");
+  } else if (normalizedPath.endsWith("/models")) {
+    modelUrl.pathname = normalizedPath;
   } else {
     modelUrl.pathname = `${normalizedPath}/models`;
   }

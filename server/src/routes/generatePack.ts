@@ -4,21 +4,22 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import multer from "multer";
+import type { AiEndpointMode } from "../services/aiClient.js";
 import { callAiEndpoint } from "../services/aiClient.js";
 import { buildFileMap } from "../services/fileMap.js";
 import {
-  buildClineQaPrompt,
   buildHandoffMappingPrompt,
-  buildManifestPrompt,
+  buildLocalClineImplementationPrompt,
+  buildLocalPackManifestMarkdown,
+  buildLocalQaChecklist,
   buildPackInputMarkdown,
-  loadKazeComponentCatalog
+  loadCompactCatalogJson,
 } from "../services/promptBuilder.js";
 import {
   applyGenerationWarningsToQuality,
   parseAllGeneratedFiles,
-  parseClineQaResponse,
   parseHandoffMappingResponse,
-  parseManifestResponse
+  parseManifestResponse,
 } from "../services/responseParser.js";
 import { isAllowedImageFilename } from "../utils/filenameParser.js";
 
@@ -26,6 +27,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..", "..", "..");
 const uploadDir = path.resolve(repoRoot, "server", "tmp", "uploads");
+const defaultAiRequestTimeoutMs = 180_000;
 
 const storage = multer.diskStorage({
   destination: async (_request, _file, callback) => {
@@ -39,14 +41,14 @@ const storage = multer.diskStorage({
   filename: (_request, file, callback) => {
     const safeBase = path.basename(file.originalname).replace(/[^\w.-]+/g, "_");
     callback(null, `${Date.now()}-${randomUUID()}-${safeBase}`);
-  }
+  },
 });
 
 const upload = multer({
   storage,
   limits: {
     fileSize: 15 * 1024 * 1024,
-    files: 20
+    files: 20,
   },
   fileFilter: (_request, file, callback) => {
     if (!isAllowedImageFilename(file.originalname)) {
@@ -55,7 +57,7 @@ const upload = multer({
     }
 
     callback(null, true);
-  }
+  },
 });
 
 export const generatePackRouter = express.Router();
@@ -68,9 +70,14 @@ generatePackRouter.post(
 
     try {
       const fields = validateFields(request.body);
+      const fastMode =
+        request.body.fastMode === "true" || request.body.fastMode === true;
+      const aiRequestTimeoutMs = getAiRequestTimeoutMs();
 
       if (uploadedFiles.length === 0) {
-        response.status(400).json({ error: "At least one screenshot is required." });
+        response
+          .status(400)
+          .json({ error: "At least one screenshot is required." });
         return;
       }
 
@@ -78,116 +85,142 @@ generatePackRouter.post(
         uploadedFiles.map((file) => ({
           originalName: file.originalname,
           path: file.path,
-          mimetype: file.mimetype
-        }))
+          mimetype: file.mimetype,
+        })),
       );
       const packInputMarkdown = buildPackInputMarkdown(
         fields,
         fileMap.entries,
-        fileMap.text
+        fileMap.text,
       );
-      const kazeComponentCatalog = await loadKazeComponentCatalog();
+      const compactCatalog = await loadCompactCatalogJson();
       const parsedFilenames = fileMap.entries.map((entry) => ({
         filename: entry.filename,
         screenName: entry.parsed.screenName,
         state: entry.parsed.state,
-        viewport: entry.parsed.viewport
+        viewport: entry.parsed.viewport,
       }));
       const allowedFilenames = fileMap.entries.map((entry) => entry.filename);
       const screenshots = fileMap.entries.map((entry) => ({
         path: entry.path,
-        mimetype: entry.mimetype
+        mimetype: entry.mimetype,
       }));
 
-      const manifestPrompt = buildManifestPrompt({
-        packInputMarkdown,
-        fileMapText: fileMap.text
-      });
-      const manifestRawResponse = await callAiEndpoint({
-        endpointUrl: fields.aiEndpointUrl,
-        modelName: fields.modelName,
-        prompt: manifestPrompt,
-        screenshots
-      });
+      const manifestStart = Date.now();
+      const localManifestMarkdown = buildLocalPackManifestMarkdown(
+        fields,
+        fileMap.entries,
+      );
+      const manifestRawResponse = [
+        "--- File: pack-manifest.md ---",
+        localManifestMarkdown,
+      ].join("\n");
+      const stage1ManifestLocalMs = Date.now() - manifestStart;
+      console.log(
+        `[generatePack] Stage 1 manifest local: ${stage1ManifestLocalMs / 1000}s`,
+      );
       const manifestParsed = parseManifestResponse({
         responseText: manifestRawResponse,
         allowedFilenames,
-        kazeComponentCatalog,
-        parsedFilenames
+        kazeComponentCatalog: compactCatalog,
+        parsedFilenames,
       });
-      const packManifestMarkdown = manifestParsed.files["pack-manifest.md"] ?? "";
+      const packManifestMarkdown =
+        manifestParsed.files["pack-manifest.md"] ?? "";
 
+      // Stage 2: Handoff + Mapping (compact JSON catalog)
       const handoffMappingPrompt = buildHandoffMappingPrompt({
         packInputMarkdown,
         packManifestMarkdown,
-        kazeComponentCatalog,
-        fileMapText: fileMap.text
+        compactCatalog,
+        fileMapText: fileMap.text,
       });
+      const handoffStart = Date.now();
+      let stage2ImagePayloadKb = 0;
+      let stage2PromptChars = handoffMappingPrompt.length;
+      let stage2ImageCount = screenshots.length;
+      let stage2EndpointMode: AiEndpointMode | undefined;
       const handoffMappingRawResponse = await callAiEndpoint({
         endpointUrl: fields.aiEndpointUrl,
         modelName: fields.modelName,
         prompt: handoffMappingPrompt,
-        screenshots
+        screenshots,
+        fastMode,
+        timeoutMs: aiRequestTimeoutMs,
+        onMetrics: (metrics) => {
+          stage2ImagePayloadKb = metrics.imagePayloadKb;
+          stage2PromptChars = metrics.promptChars;
+          stage2ImageCount = metrics.imageCount;
+          stage2EndpointMode = metrics.endpointMode;
+        },
       });
+      const stage2HandoffMappingMs = Date.now() - handoffStart;
+      console.log(
+        `[generatePack] Stage 2 handoff-mapping: ${stage2HandoffMappingMs / 1000}s (model=${fields.modelName}, endpoint=${stage2EndpointMode ?? "unknown"}, prompt=${stage2PromptChars} chars, images=${stage2ImagePayloadKb}KB/${stage2ImageCount}, timeout=${aiRequestTimeoutMs}ms)`,
+      );
       const handoffMappingParsed = parseHandoffMappingResponse({
         responseText: handoffMappingRawResponse,
         allowedFilenames,
-        kazeComponentCatalog,
-        parsedFilenames
+        kazeComponentCatalog: compactCatalog,
+        parsedFilenames,
       });
       const handoffMarkdown = handoffMappingParsed.files["handoff.md"] ?? "";
       const kazeComponentMappingMarkdown =
         handoffMappingParsed.files["kaze-component-mapping.md"] ?? "";
 
-      const clineQaPrompt = buildClineQaPrompt({
-        packInputMarkdown,
-        packManifestMarkdown,
-        handoffMarkdown,
-        kazeComponentMappingMarkdown,
-        kazeComponentCatalog
-      });
-      const clineQaRawResponse = await callAiEndpoint({
-        endpointUrl: fields.aiEndpointUrl,
-        modelName: fields.modelName,
-        prompt: clineQaPrompt,
-        screenshots: []
-      });
-      const clineQaParsed = parseClineQaResponse({
-        responseText: clineQaRawResponse,
-        allowedFilenames,
-        kazeComponentCatalog,
-        parsedFilenames
-      });
+      // Stage 3: Cline + QA (local deterministic templates)
+      const clineStart = Date.now();
+      const clineImplementationPromptMarkdown =
+        buildLocalClineImplementationPrompt();
+      const qaChecklistMarkdown = buildLocalQaChecklist();
+      const clineQaRawResponse = [
+        "--- File: cline-implementation-prompt.md ---",
+        clineImplementationPromptMarkdown,
+        "",
+        "--- File: qa-checklist.md ---",
+        qaChecklistMarkdown,
+      ].join("\n");
+      const stage3ClineQaMs = Date.now() - clineStart;
+      console.log(
+        `[generatePack] Stage 3 cline-qa local: ${stage3ClineQaMs / 1000}s`,
+      );
+      const clineQaFiles = {
+        "cline-implementation-prompt.md": clineImplementationPromptMarkdown,
+        "qa-checklist.md": qaChecklistMarkdown,
+      };
+      const clineQaWarnings: string[] = [];
 
       const rawResponses = {
-        "stage-1-manifest": manifestRawResponse,
+        "stage-1-manifest-local": manifestRawResponse,
         "stage-2-handoff-mapping": handoffMappingRawResponse,
-        "stage-3-cline-qa": clineQaRawResponse
+        "stage-3-cline-qa-local": clineQaRawResponse,
       };
       const rawResponse = formatStageRawResponses(rawResponses);
+      const validationStart = Date.now();
       const finalParsed = parseAllGeneratedFiles({
         files: mergeGeneratedFiles(
           manifestParsed.files,
           handoffMappingParsed.files,
-          clineQaParsed.files
+          clineQaFiles,
         ),
         rawResponse,
         allowedFilenames,
-        kazeComponentCatalog,
-        parsedFilenames
+        kazeComponentCatalog: compactCatalog,
+        parsedFilenames,
       });
+      const validationMs = Date.now() - validationStart;
       const warnings = [
         ...new Set([
           ...fileMap.warnings,
           ...manifestParsed.warnings,
           ...handoffMappingParsed.warnings,
-          ...clineQaParsed.warnings,
-          ...finalParsed.warnings
-        ])
+          ...clineQaWarnings,
+          ...finalParsed.warnings,
+        ]),
       ];
       const quality = applyGenerationWarningsToQuality(
         finalParsed.quality,
-        warnings
+        warnings,
       );
 
       response.json({
@@ -195,23 +228,46 @@ generatePackRouter.post(
         warnings,
         rawResponse,
         rawResponses,
-        quality
+        quality,
+        meta: {
+          mode: "local-manifest-local-cline-qa-staged",
+          fastMode,
+          timingsMs: {
+            stage1ManifestLocal: stage1ManifestLocalMs,
+            stage2HandoffMapping: stage2HandoffMappingMs,
+            stage3ClineQa: stage3ClineQaMs,
+            validation: validationMs,
+          },
+          promptSizes: {
+            stage2HandoffMapping: stage2PromptChars,
+            stage3ClineQa: clineQaRawResponse.length,
+          },
+          imagePayloadKb: stage2ImagePayloadKb,
+          ai: {
+            timeoutMs: aiRequestTimeoutMs,
+            endpointMode: stage2EndpointMode,
+            modelName: fields.modelName,
+          },
+        },
       });
     } catch (error) {
       next(error);
     } finally {
       await cleanupFiles(uploadedFiles);
     }
-  }
+  },
 );
 
 function validateFields(body: Record<string, unknown>) {
   const projectName = getRequiredString(body.projectName, "Project name");
   const shortDescription = getRequiredString(
     body.shortDescription,
-    "Short description"
+    "Short description",
   );
-  const aiEndpointUrl = getRequiredString(body.aiEndpointUrl, "AI endpoint URL");
+  const aiEndpointUrl = getRequiredString(
+    body.aiEndpointUrl,
+    "AI endpoint URL",
+  );
   const modelName = getRequiredString(body.modelName, "Model name");
 
   try {
@@ -223,12 +279,11 @@ function validateFields(body: Record<string, unknown>) {
   return {
     projectName,
     shortDescription,
-    designSource:
-      getOptionalString(body.designSource) || "Screenshot export",
+    designSource: getOptionalString(body.designSource) || "Screenshot export",
     iconSystem: getOptionalString(body.iconSystem) || "Font Awesome",
     additionalNotes: getOptionalString(body.additionalNotes),
     aiEndpointUrl,
-    modelName
+    modelName,
   };
 }
 
@@ -245,14 +300,26 @@ function getOptionalString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function getAiRequestTimeoutMs(): number {
+  const configured = Number(process.env.AI_REQUEST_TIMEOUT_MS);
+
+  if (Number.isFinite(configured) && configured > 0) {
+    return Math.trunc(configured);
+  }
+
+  return defaultAiRequestTimeoutMs;
+}
+
 async function cleanupFiles(files: Express.Multer.File[]): Promise<void> {
-  await Promise.allSettled(files.map((file) => fs.rm(file.path, { force: true })));
+  await Promise.allSettled(
+    files.map((file) => fs.rm(file.path, { force: true })),
+  );
 }
 
 function formatStageRawResponses(rawResponses: Record<string, string>): string {
   return Object.entries(rawResponses)
     .map(([stageName, rawResponse]) =>
-      [`--- Stage: ${stageName} ---`, rawResponse.trim()].join("\n")
+      [`--- Stage: ${stageName} ---`, rawResponse.trim()].join("\n"),
     )
     .join("\n\n");
 }

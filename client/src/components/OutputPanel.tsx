@@ -4,6 +4,7 @@ import { OutputTabs } from "./OutputTabs";
 interface OutputPanelProps {
   response: GeneratePackResponse | null;
   projectName: string;
+  screenshots: File[];
   isLoading: boolean;
   onRegenerate: () => void;
 }
@@ -11,6 +12,7 @@ interface OutputPanelProps {
 export function OutputPanel({
   response,
   projectName,
+  screenshots,
   isLoading,
   onRegenerate
 }: OutputPanelProps) {
@@ -38,6 +40,7 @@ export function OutputPanel({
       warnings={response.warnings}
       quality={response.quality}
       projectName={projectName}
+      screenshots={screenshots}
       onRegenerate={onRegenerate}
       isLoading={isLoading}
     />

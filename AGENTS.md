@@ -35,6 +35,34 @@ config/   Editable Kaze component catalog
 docs/     Human and maintainer documentation
 ```
 
+## Kaze Package Truth
+
+The real Kaze package for generated implementation guidance is:
+
+```text
+@pcs-security/kaze-ui-library v3.1.8
+```
+
+It uses unprefixed named exports. Correct export names include:
+
+- `Button`
+- `TextField`
+- `Dropdown`
+- `Avatar`
+- `Typography`
+
+Do not generate fake prefixed names such as:
+
+- `KazeButton`
+- `KazeInput`
+- `KazeSelect`
+- `KazeAvatar`
+- `KazeTypography`
+
+Use `Exact Kaze Export` terminology in generated mapping tables. The source of truth is `config/kaze-component-catalog.md` plus `config/kaze-component-catalog.json`.
+
+Sidebar/navigation rail, layout containers, prompt bar wrappers, icon wrappers, and card/panel patterns remain `Unknown / verify from Kaze` unless actual project usage confirms an approved pattern.
+
 Frontend responsibilities:
 
 - Render the form and upload workflow.
@@ -55,9 +83,9 @@ Backend responsibilities:
 - Build File Map.
 - Build `pack-input.md` internally.
 - Load `config/kaze-component-catalog.md`.
-- Build the strict AI prompt.
-- Send prompt and images to the configured AI endpoint.
-- Parse model response into the five output files.
+- Build strict staged AI prompts.
+- Send prompts and images to the configured AI endpoint.
+- Parse model responses into the five output files.
 - Sanitize unsafe AI output.
 - Validate final sanitized output.
 - Return files, warnings, raw response, and quality status.
@@ -74,13 +102,14 @@ Backend responsibilities:
 8. Backend builds File Map in upload order.
 9. Backend generates internal `pack-input.md`.
 10. Backend loads `config/kaze-component-catalog.md`.
-11. Backend builds a strict one-shot AI prompt.
-12. Backend sends prompt plus images to Ollama or an OpenAI-compatible endpoint.
-13. Backend parses the AI response by file markers.
-14. Backend sanitizes output files.
-15. Backend validates final sanitized output.
-16. Backend returns generated files, raw AI response, warnings, and quality.
-17. Frontend renders output tabs and warning/quality UI.
+11. Backend runs the strict 3-stage generation pipeline.
+12. Stage 1 locally generates `pack-manifest.md` from form fields, File Map, and parsed filenames.
+13. Stage 2 uses the sanitized manifest and screenshots to generate `handoff.md` and `kaze-component-mapping.md`.
+14. Stage 3 uses sanitized prior outputs, without screenshots, to generate `cline-implementation-prompt.md` and `qa-checklist.md`.
+15. Backend parses each stage response by file markers.
+16. Backend sanitizes and validates output files.
+17. Backend returns generated files, raw AI responses, warnings, and quality.
+18. Frontend renders output tabs and warning/quality UI.
 
 ## Important Files And Folders
 
@@ -89,14 +118,16 @@ Root:
 - `package.json`: workspace scripts.
 - `README.md`: human project overview.
 - `AGENTS.md`: this AI coding agent guide.
-- `config/kaze-component-catalog.md`: confirmed Kaze components and unconfirmed patterns.
+- `config/kaze-component-catalog.md`: confirmed Kaze exports and unconfirmed patterns.
+- `config/kaze-component-catalog.json`: machine-readable package exports, pattern mappings, forbidden fake names, and deterministic repairs.
 
 Client:
 
 - `client/src/App.tsx`: top-level app state, form submit, model loading, theme.
 - `client/src/api/generatePack.ts`: submits `multipart/form-data`.
+- `client/src/api/aiAssist.ts`: submits screenshot-based on-prem AI assist requests.
 - `client/src/api/listModels.ts`: loads available models from `/api/models`.
-- `client/src/components/PackDetailsCard.tsx`: project details fields.
+- `client/src/components/PackDetailsCard.tsx`: project details fields and AI assist buttons.
 - `client/src/components/ScreenshotUploadCard.tsx`: drag/drop upload, file list, warnings, File Map Preview.
 - `client/src/components/AdvancedSettingsCard.tsx`: endpoint and model controls.
 - `client/src/components/OutputPanel.tsx`: empty state and output container.
@@ -109,10 +140,12 @@ Server:
 
 - `server/src/index.ts`: Express server, route mounting, static client hosting.
 - `server/src/routes/generatePack.ts`: generation endpoint.
+- `server/src/routes/aiAssist.ts`: on-prem AI assist endpoint.
 - `server/src/routes/models.ts`: model discovery endpoint.
 - `server/src/services/fileMap.ts`: File Map creation.
 - `server/src/services/promptBuilder.ts`: `pack-input.md` and AI prompt construction.
 - `server/src/services/aiClient.ts`: Ollama/OpenAI-compatible AI calls.
+- `server/src/services/aiAssist.ts`: AI assist prompt construction and JSON response parsing.
 - `server/src/services/modelDiscovery.ts`: model list discovery.
 - `server/src/services/responseParser.ts`: response parsing, sanitizer, validator, quality score.
 - `server/src/utils/filenameParser.ts`: backend filename parser.
@@ -157,6 +190,36 @@ npm run build
 ```
 
 ## API Contract
+
+### POST /api/ai-assist
+
+Request type:
+
+```text
+multipart/form-data
+```
+
+Fields:
+
+- `aiEndpointUrl`
+- `modelName`
+- `targetField`
+- `screenName`
+- `shortDescription`
+- `additionalNotes`
+- `screenshots`
+
+Response:
+
+```json
+{
+  "screenName": "...",
+  "shortDescription": "...",
+  "additionalNotes": "..."
+}
+```
+
+This endpoint is for button-triggered on-prem screenshot-based AI assist only. It must not call public cloud model providers directly.
 
 ### POST /api/generate-pack
 
@@ -284,7 +347,9 @@ Never:
 
 ```md
 ### Screen: HomeGreeting
+
 ### Screen Name: HomeGreeting
+
 ### HomeGreeting_Default
 ```
 
@@ -298,7 +363,7 @@ The source of truth is:
 config/kaze-component-catalog.md
 ```
 
-Allowed exact Kaze component names are only those listed under Confirmed Kaze Components.
+Allowed exact Kaze exports are only those listed under Confirmed Exports in the catalog.
 
 If a pattern is not confirmed, output:
 
@@ -306,10 +371,21 @@ If a pattern is not confirmed, output:
 Unknown / verify from Kaze
 ```
 
-Do not invent Kaze component names or props.
+Do not invent Kaze export names or props. Do not prefix real exports with `Kaze`.
+
+Use these real mappings:
+
+- `KazeButton` is wrong; use `Button`.
+- `KazeInput` is wrong; use `TextField`.
+- `KazeSelect` is wrong; use `Dropdown`.
+- `KazeAvatar` is wrong; use `Avatar`.
+- `KazeTypography` is wrong; use `Typography`.
 
 Forbidden unless explicitly confirmed in the catalog:
 
+- `KazeButton`
+- `KazeInput`
+- `KazeSelect`
 - `KazeSidebar`
 - `KazeAvatar`
 - `KazeCard`
@@ -323,7 +399,7 @@ Forbidden unless explicitly confirmed in the catalog:
 - `KazeGreeting`
 - `KazePromptBar`
 
-For sidebar, avatar, typography, layout, card, icon wrapper, or prompt bar, use `Unknown / verify from Kaze` unless the catalog confirms a component.
+For sidebar, layout, card, icon wrapper, or prompt bar, use `Unknown / verify from Kaze` unless actual project usage confirms an approved pattern. Avatar and Typography are confirmed exports, but exact props must still be verified in the target project.
 
 ## AI Prompt Responsibilities
 
@@ -333,14 +409,14 @@ The prompt builder must:
 - Include `config/kaze-component-catalog.md`.
 - Include File Map.
 - Include filename parsing rules.
-- Include strict Kaze component rules.
+- Include strict Kaze export rules.
 - Include `pack-manifest.md` scope limits.
 - Include safe QA wording rules.
 - Include Cline/Codex verification rules.
 - Require exact output file markers.
 - Forbid reasoning, analysis, citations, `<details>` blocks, and commentary outside file sections.
 
-Do not split generation into multiple AI calls unless the product direction changes.
+Do not split generation into five independent AI calls unless the product direction changes. Keep the controlled 3-stage pipeline.
 
 ## Output File Rules
 
@@ -369,8 +445,8 @@ The AI response must use these exact markers:
 
 `pack-manifest.md` must not include:
 
-- Kaze component names
-- Kaze component verification
+- Kaze export names
+- Kaze export verification
 - Token details
 - Spacing details
 - CSS values
@@ -411,7 +487,7 @@ Sanitizer should repair deterministic problems:
 
 Validator should warn if unsafe content remains after sanitization:
 
-- Forbidden Kaze component names.
+- Forbidden fake Kaze-prefixed names.
 - Invented filenames.
 - `Default / Empty`, `Initial / Empty`, `Empty no history`.
 - Reasoning, analysis, or `<details>`.
@@ -449,7 +525,7 @@ Only show `10/10 Ready` when:
 - All five files are present.
 - File references match the File Map.
 - ScreenName parsing is correct.
-- No forbidden Kaze component remains.
+- No forbidden fake Kaze-prefixed name remains.
 - No reasoning/details block remains.
 - Manifest is clean.
 - State is not incorrectly labeled Empty.
@@ -472,7 +548,7 @@ Use `Needs Review` when:
 
 Do not invent:
 
-- Kaze component names.
+- Kaze export names.
 - Kaze props.
 - Screenshot filenames.
 - Routes.
@@ -524,15 +600,19 @@ Expected `pack-manifest.md`:
 
 Expected component mapping:
 
-- `KazeInput`, `KazeButton`, `KazeSelect` only if confirmed in catalog.
-- Sidebar/avatar/typography/layout/prompt bar remain `Unknown / verify from Kaze` unless confirmed.
+- Greeting text maps to `Typography`.
+- Prompt input maps to `TextField`.
+- Buttons and icon buttons map to `Button` where supported.
+- Thinking selector maps to `Dropdown`.
+- Avatar/profile badge maps to `Avatar`.
+- Sidebar/navigation rail, layout container, and prompt bar wrapper remain `Unknown / verify from Kaze` unless actual project usage confirms a pattern.
 
 Expected Cline prompt:
 
 - Includes `## Critical First Step`.
 - Includes `Inspect actual project structure.`
-- Requires package export, Storybook/docs, and existing project pattern checks.
-- Forbids guessed components, routes, APIs, dropdown values, and permission rules.
+- Requires `@pcs-security/kaze-ui-library` package export, Storybook/docs, and existing project pattern checks.
+- Forbids guessed Kaze exports, routes, APIs, dropdown values, and permission rules.
 
 Expected QA:
 
@@ -557,7 +637,7 @@ When modifying this repo:
 - Preserve File Map ordering.
 - Preserve original uploaded filenames.
 - Do not remove sanitizer checks without adding equivalent coverage.
-- Do not loosen Kaze component validation.
+- Do not loosen Kaze export validation.
 - Do not put implementation details back into `pack-manifest.md`.
 - Add prompt rules and sanitizer/validator rules together when fixing recurring AI wording.
 - Prefer deterministic sanitizer repairs for known repeated issues.
