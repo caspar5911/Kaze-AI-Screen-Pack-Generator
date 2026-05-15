@@ -7,6 +7,7 @@ import {
   buildLocalPackManifestMarkdown,
   buildLocalQaChecklist,
 } from "../server/src/services/promptBuilder.ts";
+import { buildClineReadinessStandard } from "../client/src/utils/downloadZip.ts";
 import { validateKazeMappingContent } from "../server/src/services/kazeCatalog.ts";
 import {
   parseAllGeneratedFiles,
@@ -252,6 +253,7 @@ const aiAuthoredBadMapping = [
   "| UI Element | Intended Kaze Pattern | Exact Kaze Export | Confidence | Notes |",
   "|---|---|---|---|---|",
   "| Generate / Preview Buttons | Clickable action / Primary button | Button | High | Real unprefixed export. |",
+  "| Columns selected | Dropdown | Dropdown | High | Table configuration control. |",
   "| Sidebar Nav | Unknown / verify from Kaze | Unknown / verify from Kaze | Low | Verify project pattern. |",
 ].join("\n");
 const repairedBadMappingResult = parseGeneratedFilesForTest({
@@ -285,6 +287,45 @@ assert.match(
 assert.doesNotMatch(
   repairedBadMapping,
   /Unknown \/ verify from Kaze \/ verify from Kaze/i,
+);
+assert.match(
+  repairedBadMapping,
+  /\| Columns selected \| Checkbox dropdown \/ column picker \| CheckboxDropdown \| High \| Multi-select dropdown for table column selection\. \|/,
+);
+assert.match(
+  repairedBadMapping,
+  /\| Enterprise Grid Preview \| Enterprise data grid \| AgGridTable \| High \| Complex enterprise table\/grid pattern\. \|/,
+);
+assert.match(
+  repairedBadMapping,
+  /\| Status Lozenge \| Compact status label \| Lozenge \| High \| Status\/state label pattern\. \|/,
+);
+assert.match(
+  repairedBadMapping,
+  /\| Standard Mode Options \| Radio group \| RadioGroup \| High \| Grouped single-choice options\. \|/,
+);
+
+const countNormalizedResult = parseGeneratedFilesForTest({
+  "handoff.md": [
+    "# Handoff",
+    "",
+    "## Overview",
+    "- Gallery showing 36 component exports + hooks/utilities.",
+    "",
+    "## Screenshots",
+    "- `screenshots/KazeComponentGallery_Default_Desktop.png`",
+    "",
+    "## Unknowns",
+    "- Exact interactive behaviour for each sample component is not confirmed.",
+  ].join("\n"),
+});
+assert.match(
+  countNormalizedResult.files["handoff.md"] ?? "",
+  /35 visual components \+ 2 utility exports/,
+);
+assert.doesNotMatch(
+  countNormalizedResult.files["handoff.md"] ?? "",
+  /36 component exports \+ hooks\/utilities/i,
 );
 
 const manifest = result.files["pack-manifest.md"] ?? "";
@@ -344,6 +385,15 @@ assert.deepEqual(
   validRepairGuidanceErrors,
   [],
   "validator must allow fake-name repair guidance that recommends real exports",
+);
+
+const readinessStandardErrors = validateKazeMappingContent({
+  "cline-readiness-standard.md": buildClineReadinessStandard(),
+});
+assert.deepEqual(
+  readinessStandardErrors,
+  [],
+  "generated cline-readiness-standard.md must pass real-export contradiction validation",
 );
 
 const fakeImportErrors = validateKazeMappingContent({

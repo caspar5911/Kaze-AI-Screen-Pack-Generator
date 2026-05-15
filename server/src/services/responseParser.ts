@@ -786,16 +786,27 @@ function ensureComponentGalleryMappingContent(
     return files;
   }
 
+  const mappingWithRequiredRows =
+    ensureComponentGalleryMainMappingRows(mapping);
   const galleryExports = getVisualKazeExports();
   const missingExports = galleryExports.filter(
-    (exportName) => !new RegExp(`\\b${escapeRegExp(exportName)}\\b`).test(mapping),
+    (exportName) =>
+      !new RegExp(`\\b${escapeRegExp(exportName)}\\b`).test(
+        mappingWithRequiredRows,
+      ),
   );
   const utilityExports = ["notification", "useNotification"].filter(
-    (exportName) => !new RegExp(`\\b${escapeRegExp(exportName)}\\b`).test(mapping),
+    (exportName) =>
+      !new RegExp(`\\b${escapeRegExp(exportName)}\\b`).test(
+        mappingWithRequiredRows,
+      ),
   );
 
   if (missingExports.length === 0 && utilityExports.length === 0) {
-    return files;
+    return {
+      ...files,
+      "kaze-component-mapping.md": mappingWithRequiredRows,
+    };
   }
 
   const appendix = [
@@ -815,8 +826,84 @@ function ensureComponentGalleryMappingContent(
 
   return {
     ...files,
-    "kaze-component-mapping.md": `${mapping.trim()}\n${appendix}`,
+    "kaze-component-mapping.md": `${mappingWithRequiredRows.trim()}\n${appendix}`,
   };
+}
+
+function ensureComponentGalleryMainMappingRows(mapping: string): string {
+  const requiredRows = [
+    formatMarkdownTableRow([
+      "Enterprise Grid Preview",
+      "Enterprise data grid",
+      "AgGridTable",
+      "High",
+      "Complex enterprise table/grid pattern.",
+    ]),
+    formatMarkdownTableRow([
+      "Columns selected",
+      "Checkbox dropdown / column picker",
+      "CheckboxDropdown",
+      "High",
+      "Multi-select dropdown for table column selection.",
+    ]),
+    formatMarkdownTableRow([
+      "Status Lozenge",
+      "Compact status label",
+      "Lozenge",
+      "High",
+      "Status/state label pattern.",
+    ]),
+    formatMarkdownTableRow([
+      "Standard Mode Options",
+      "Radio group",
+      "RadioGroup",
+      "High",
+      "Grouped single-choice options.",
+    ]),
+  ];
+  const existingTable = readMarkdownSection(mapping, "Screen Mapping Table");
+  const missingRows = requiredRows.filter((row) => {
+    const exactExport = parseMarkdownTableRow(row)?.[2] ?? "";
+    return !new RegExp(
+      `\\|[^\\n]*\\|[^\\n]*\\|\\s*${escapeRegExp(exactExport)}\\s*\\|`,
+      "i",
+    ).test(existingTable);
+  });
+
+  if (missingRows.length === 0) {
+    return mapping;
+  }
+
+  const nextSectionIndex = findNextSectionIndexAfter(
+    mapping,
+    "Screen Mapping Table",
+  );
+
+  if (nextSectionIndex >= 0) {
+    return `${mapping.slice(0, nextSectionIndex).trimEnd()}\n${missingRows.join("\n")}\n\n${mapping.slice(nextSectionIndex).trimStart()}`;
+  }
+
+  return `${mapping.trimEnd()}\n${missingRows.join("\n")}`;
+}
+
+function findNextSectionIndexAfter(
+  markdown: string,
+  sectionName: string,
+): number {
+  const sectionPattern = new RegExp(
+    `(?:^|\\n)## ${escapeRegExp(sectionName)}\\s*\\n`,
+    "i",
+  );
+  const sectionMatch = sectionPattern.exec(markdown);
+
+  if (!sectionMatch || sectionMatch.index === undefined) {
+    return -1;
+  }
+
+  const searchStart = sectionMatch.index + sectionMatch[0].length;
+  const nextSectionPattern = /\n## /g;
+  nextSectionPattern.lastIndex = searchStart;
+  return nextSectionPattern.exec(markdown)?.index ?? -1;
 }
 
 function repairKazeMappingSourceFilesFromManifest(
@@ -1128,7 +1215,7 @@ function sanitizeHandoffContent(
     return handoff;
   }
 
-  const sanitizedHandoff = handoff
+  const sanitizedHandoff = normalizeComponentGalleryExportCountText(handoff)
     .replace(
       /Background is pure black\s*\(#000000\)\.?/gi,
       "Dark themed background. Exact colour should follow Kaze/project tokens or existing project styles.",
@@ -1150,6 +1237,18 @@ function sanitizeHandoffContent(
     sanitizedHandoff,
     "Dark themed background. Exact colour should follow Kaze/project tokens or existing project styles.",
   );
+}
+
+function normalizeComponentGalleryExportCountText(text: string): string {
+  return text
+    .replace(
+      /\b36\s+component\s+exports?\s*\+\s*(?:hooks?|utilities|hooks\s*\/\s*utilities|hooks\s+and\s+utilities)\b/gi,
+      "35 visual components + 2 utility exports",
+    )
+    .replace(
+      /\b36\s+components?\s*\+\s*(?:hooks?|utilities|hooks\s*\/\s*utilities|hooks\s+and\s+utilities)\b/gi,
+      "35 visual components + 2 utility exports",
+    );
 }
 
 function sanitizeKazeComponentMappingContent(
@@ -1447,6 +1546,22 @@ function normalizeMappingExactComponentCell(
       new RegExp(`\\b${escapeRegExp(component)}\\b`).test(exactCell),
   );
   const mentionsUnknown = /Unknown\s*\/\s*verify from Kaze/i.test(exactCell);
+
+  if (
+    /columns?\s+selected|column\s+picker|column\s+visibility|multi-?select|dropdown\s+with\s+checkboxes|checkbox\s+dropdown/i.test(
+      rowText,
+    ) &&
+    allowedComponents.has("CheckboxDropdown")
+  ) {
+    return formatMarkdownTableRow([
+      /columns?\s+selected/i.test(uiElement) ? "Columns selected" : uiElement,
+      "Checkbox dropdown / column picker",
+      "CheckboxDropdown",
+      "High",
+      "Multi-select dropdown for table column selection.",
+      ...rest,
+    ]);
+  }
 
   if (
     /quick action|create an image|write or edit|look something up/i.test(

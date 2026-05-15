@@ -1954,7 +1954,7 @@ The model or parser should produce data shaped like this:
 The generated pack is not ready if:
 
 - Uses fake Kaze-prefixed exports as valid imports.
-- Says Button, TextField, Dropdown, Avatar, or Typography are fake invalid names.
+- Incorrectly forbids valid unprefixed exports such as Button, TextField, Dropdown, Avatar, or Typography.
 - Detects profile/avatar visual element but does not mention Avatar.
 - Detects clickable actions but does not mention Button.
 - Detects text input but does not mention TextField or TextArea.

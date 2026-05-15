@@ -392,7 +392,7 @@ console.log("Pack validation passed. This pack is Cline-ready.");
 `;
 }
 
-function buildClineReadinessStandard(): string {
+export function buildClineReadinessStandard(): string {
   return [
     "# Cline Readiness Standard",
     "",
@@ -414,7 +414,7 @@ function buildClineReadinessStandard(): string {
     "## Automatic Fail",
     "- The pack references a screenshot that does not exist.",
     "- The pack contains contradictory Kaze component rules.",
-    "- The pack says Button, TextField, or Avatar are fake invalid names.",
+    "- The pack incorrectly forbids valid unprefixed exports such as `Button`, `TextField`, `Dropdown`, `Avatar`, or `Typography`.",
     "- The pack treats KazeButton, KazeInput, KazeSelect, KazeAvatar, or KazeTypography as valid exports.",
     "- The pack tells the agent to invent routes.",
     "- The pack tells the agent to invent APIs.",
