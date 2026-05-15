@@ -252,6 +252,8 @@ For sidebar, avatar, typography, layout, card, icon wrapper, or prompt bar:
 
 Visual accuracy rules:
 - Do not output exact pixel measurements unless provided in pack-input.md or design specs.
+- Do not output exact hex, pixel, radius, or spacing values unless provided in pack-input.md or design specs.
+- Write "Dark themed background. Exact colour should follow Kaze/project tokens or existing project styles." instead of exact values like "Background is pure black (#000000)".
 - If estimating spacing, sizing, colours, or radius from screenshot, label them as approximate visual estimate.
 - Prefer Kaze tokens and existing project styles over hardcoded pixel/hex values.
 - Do not invent animation values such as scale, transition duration, hover lift, or custom focus effects.
@@ -299,9 +301,18 @@ Exact Kaze Component cell rules:
 - Each Exact Kaze Component cell must contain only one clear value.
 - Use either a confirmed component from the catalog, OR Unknown / verify from Kaze.
 - Do not write ambiguous values like Unknown / verify from Kaze / KazeButton.
+- Do not put Font Awesome icon names, icon descriptions, or mixed values in the Exact Kaze Component column.
 - For the plus/attachment icon button, use:
   - Exact Kaze Component: KazeButton
   - Notes: Use as icon button if supported by KazeButton props; otherwise verify project pattern.
+- For a microphone icon, write:
+  | Microphone Button | Button / icon button | KazeButton | High | Use Font Awesome microphone icon if project setup supports it. |
+- For sidebar icons, write:
+  | Sidebar Icon Buttons | Navigation / icon button pattern | Unknown / verify from Kaze | Low | Verify existing project sidebar/navigation pattern. |
+- For a top-right close icon, write:
+  | Top-right Close/Icon Button | Icon button pattern | Unknown / verify from Kaze | Medium | Exact icon and behaviour unknown. |
+- For greeting typography, write:
+  Use existing project typography/heading pattern. If Kaze has a confirmed typography component, use it; otherwise document fallback.
 
 Icon wording:
 - For high-confidence icons, write "Likely Font Awesome [icon type]; verify project icon setup."
@@ -385,6 +396,7 @@ Implementation rules must include:
 - Mark unknown behaviour as TODO.
 - Run typecheck/build if available.
 - Report unresolved unknowns and fallback choices.
+- Write "Dark mode using existing Kaze/project tokens or styles." instead of "Dark mode (#000000 background, light text)."
 
 Fallback rule must include:
 If a Kaze component is not verified:
@@ -431,6 +443,8 @@ Good QA wording:
 - Microphone button behaviour is implemented or marked as TODO.
 - White action button behaviour is implemented or marked as TODO.
 - Screen reader behaviour is verified for implemented dynamic states.
+- Use checkbox format for every checklist item: "- [ ] ...".
+- Write "matches the screenshot and existing Kaze/project typography pattern." instead of "matches typography specs".
 
 qa-checklist.md must include:
 - Visual checks
@@ -542,6 +556,8 @@ Critical Kaze mapping rules:
 
 Critical visual accuracy rules:
 - Do not output exact pixel measurements unless provided in pack-input.md or design specs.
+- Do not output exact hex, pixel, radius, or spacing values unless provided in pack-input.md or design specs.
+- Write "Dark themed background. Exact colour should follow Kaze/project tokens or existing project styles." instead of exact values like "Background is pure black (#000000)".
 - If estimating spacing, sizing, colours, or radius from screenshot, label them as "approximate visual estimate".
 - Prefer Kaze tokens and existing project styles over hardcoded pixel/hex values.
 - Do not invent animation values such as scale, transition duration, hover lift, or custom focus effects.
@@ -660,6 +676,12 @@ Must include:
 kaze-component-mapping.md rules:
 - If component exists in catalog, use exact component.
 - If not in catalog, use "Unknown / verify from Kaze".
+- The "Exact Kaze Component" column must contain only a confirmed Kaze component from the catalog, OR "Unknown / verify from Kaze".
+- Do not put Font Awesome icon names, icon descriptions, conditional text, or mixed values in the "Exact Kaze Component" column.
+- Microphone Icon should be represented as: | Microphone Button | Button / icon button | KazeButton | High | Use Font Awesome microphone icon if project setup supports it. |
+- Sidebar Icons should be represented as: | Sidebar Icon Buttons | Navigation / icon button pattern | Unknown / verify from Kaze | Low | Verify existing project sidebar/navigation pattern. |
+- Close Icon should be represented as: | Top-right Close/Icon Button | Icon button pattern | Unknown / verify from Kaze | Medium | Exact icon and behaviour unknown. |
+- For greeting notes, write "Use existing project typography/heading pattern. If Kaze has a confirmed typography component, use it; otherwise document fallback."
 - Do not use fake Kaze* names.
 - For uncertain icons, use "Unknown / verify Font Awesome icon".
 - Only high-confidence icons like plus, microphone, image, pen, and globe can be named.
@@ -746,6 +768,8 @@ Must include:
 
 QA checklist wording rules:
 - Do not assume optional behaviours work.
+- Every checklist item must use checkbox format: "- [ ] ...".
+- Write "matches the screenshot and existing Kaze/project typography pattern." instead of "matches typography specs."
 - Write "Sidebar navigation is implemented or marked as TODO." instead of "Sidebar navigation routes to correct sections."
 - Write "Sidebar navigation is implemented or marked as TODO." instead of "Sidebar links navigate correctly."
 - Write "Avatar interaction is implemented or marked as TODO." instead of "Avatar click opens profile/account menu."

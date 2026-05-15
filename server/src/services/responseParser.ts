@@ -478,6 +478,31 @@ function getChecklistDeduplicationKey(line: string): string | null {
     .toLowerCase();
 }
 
+function sanitizeQaChecklist(checklist: string | undefined): string | undefined {
+  if (!checklist) {
+    return checklist;
+  }
+
+  const typographySafeChecklist = checklist.replace(
+    /matches typography specs/gi,
+    "matches the screenshot and existing Kaze/project typography pattern"
+  );
+  const repaired = repairUnsafeQaAndFallbackText(typographySafeChecklist, false);
+  const checkboxLines = normalizeQaChecklistCheckboxes(repaired.text.split("\n"));
+  return dedupeChecklistItems(checkboxLines, new Set()).join("\n");
+}
+
+function normalizeQaChecklistCheckboxes(lines: string[]): string[] {
+  return lines.map((line) => {
+    const bulletMatch = line.match(/^(\s*)[-*]\s+(?!\[[ x]\]\s*)(.+)$/i);
+    if (!bulletMatch) {
+      return line;
+    }
+
+    return `${bulletMatch[1]}- [ ] ${bulletMatch[2].trim()}`;
+  });
+}
+
 function sanitizeParsedFiles(
   files: Partial<Record<GeneratedFileName, string>>,
   kazeComponentCatalog: string
@@ -493,9 +518,7 @@ function sanitizeParsedFiles(
     "cline-implementation-prompt.md": sanitizeClinePrompt(
       files["cline-implementation-prompt.md"]
     ),
-    "qa-checklist.md": files["qa-checklist.md"]
-      ? repairUnsafeQaAndFallbackText(files["qa-checklist.md"], true).text
-      : undefined
+    "qa-checklist.md": sanitizeQaChecklist(files["qa-checklist.md"])
   };
 }
 
@@ -632,12 +655,34 @@ function trimTrailingBlankLines(lines: string[]): string[] {
   return trimmedLines;
 }
 
+function replaceUnsafeExactDarkVisualLines(text: string, replacement: string): string {
+  return text
+    .split("\n")
+    .map((line) => {
+      if (!/#000000/i.test(line)) {
+        return line;
+      }
+
+      const prefix = line.match(/^(\s*(?:[-*]\s+(?:\[[ x]\]\s*)?)?)/i)?.[0] ?? "";
+      return `${prefix}${replacement}`;
+    })
+    .join("\n");
+}
+
 function sanitizeHandoffContent(handoff: string | undefined): string | undefined {
   if (!handoff) {
     return handoff;
   }
 
-  return handoff
+  const sanitizedHandoff = handoff
+    .replace(
+      /Background is pure black\s*\(#000000\)\.?/gi,
+      "Dark themed background. Exact colour should follow Kaze/project tokens or existing project styles."
+    )
+    .replace(
+      /pure black\s*\(#000000\)/gi,
+      "dark themed background using existing Kaze/project tokens or styles"
+    )
     .replace(
       /Specific Font Awesome icons for the sidebar and quick actions\s*\([^)]*plus[^)]*microphone[^)]*image[^)]*pen[^)]*globe[^)]*\)\.?/gi,
       "Specific Font Awesome icons should be verified against the project icon setup."
@@ -646,6 +691,11 @@ function sanitizeHandoffContent(handoff: string | undefined): string | undefined
       /Select a mode from the dropdown selector\.?/gi,
       "Interact with the visible `Thinking` selector. Exact options are unknown."
     );
+
+  return replaceUnsafeExactDarkVisualLines(
+    sanitizedHandoff,
+    "Dark themed background. Exact colour should follow Kaze/project tokens or existing project styles."
+  );
 }
 
 function sanitizeKazeComponentMappingContent(
@@ -658,13 +708,33 @@ function sanitizeKazeComponentMappingContent(
 
   const allowedComponents = getAllowedKazeComponents(kazeComponentCatalog);
 
-  return mapping
+  const cleanedMapping = mapping
+    .replace(
+      /Use Unknown \/ verify from Kaze or Unknown \/ verify from Kaze if available, otherwise standard HTML\/Text\.?/gi,
+      "Use existing project typography/heading pattern. If Kaze has a confirmed typography component, use it; otherwise document fallback."
+    )
+    .replace(
+      /Unknown \/ verify from Kaze or Unknown \/ verify from Kaze/gi,
+      "Unknown / verify from Kaze"
+    );
+
+  let inComponentMappingTable = false;
+
+  return cleanedMapping
     .split("\n")
     .map((line) => {
-      const normalizedComponentLine = normalizeMappingExactComponentCell(
-        line,
-        allowedComponents
-      );
+      const cells = parseMarkdownTableRow(line);
+      if (!cells) {
+        inComponentMappingTable = false;
+      } else if (cells.some((cell) => /^Exact Kaze Component$/i.test(cell))) {
+        inComponentMappingTable = true;
+      } else if (!isMarkdownTableSeparator(cells) && /^UI Element$/i.test(cells[0])) {
+        inComponentMappingTable = false;
+      }
+
+      const normalizedComponentLine = inComponentMappingTable
+        ? normalizeMappingExactComponentCell(line, allowedComponents)
+        : line;
 
       if (!/Known standard icon/i.test(normalizedComponentLine)) {
         return normalizedComponentLine;
@@ -698,14 +768,56 @@ function normalizeMappingExactComponentCell(
   const [uiElement, intendedPattern, exactComponent, confidence, notes, ...rest] =
     cells;
   const exactCell = exactComponent.trim();
+  const noteCell = notes
+    .replace(
+      /Use Unknown \/ verify from Kaze or Unknown \/ verify from Kaze if available, otherwise standard HTML\/Text\.?/gi,
+      "Use existing project typography/heading pattern. If Kaze has a confirmed typography component, use it; otherwise document fallback."
+    )
+    .replace(
+      /Unknown \/ verify from Kaze or Unknown \/ verify from Kaze/gi,
+      "Unknown / verify from Kaze"
+    );
   const mentionedAllowedComponents = [...allowedComponents].filter((component) =>
     new RegExp(`\\b${escapeRegExp(component)}\\b`).test(exactCell)
   );
   const mentionsUnknown = /Unknown\s*\/\s*verify from Kaze/i.test(exactCell);
 
+  if (/microphone/i.test(`${uiElement} ${exactCell} ${noteCell}`)) {
+    return formatMarkdownTableRow([
+      "Microphone Button",
+      "Button / icon button",
+      allowedComponents.has("KazeButton") ? "KazeButton" : "Unknown / verify from Kaze",
+      allowedComponents.has("KazeButton") ? "High" : "Low",
+      "Use Font Awesome microphone icon if project setup supports it.",
+      ...rest
+    ]);
+  }
+
+  if (/sidebar.*icons?|sidebar icon buttons?/i.test(uiElement)) {
+    return formatMarkdownTableRow([
+      "Sidebar Icon Buttons",
+      "Navigation / icon button pattern",
+      "Unknown / verify from Kaze",
+      "Low",
+      "Verify existing project sidebar/navigation pattern.",
+      ...rest
+    ]);
+  }
+
+  if (/close.*icon|top-right close/i.test(`${uiElement} ${exactCell}`)) {
+    return formatMarkdownTableRow([
+      "Top-right Close/Icon Button",
+      "Icon button pattern",
+      "Unknown / verify from Kaze",
+      "Medium",
+      "Exact icon and behaviour unknown.",
+      ...rest
+    ]);
+  }
+
   if (
     /plus|attachment/i.test(uiElement) &&
-    mentionedAllowedComponents.includes("KazeButton")
+    allowedComponents.has("KazeButton")
   ) {
     return formatMarkdownTableRow([
       uiElement,
@@ -717,13 +829,24 @@ function normalizeMappingExactComponentCell(
     ]);
   }
 
+  if (exactCellContainsIconDescription(exactCell)) {
+    return formatMarkdownTableRow([
+      uiElement,
+      intendedPattern,
+      mentionedAllowedComponents[0] ?? "Unknown / verify from Kaze",
+      confidence,
+      noteCell,
+      ...rest
+    ]);
+  }
+
   if (mentionsUnknown && mentionedAllowedComponents.length > 0) {
     return formatMarkdownTableRow([
       uiElement,
       intendedPattern,
       mentionedAllowedComponents[0],
       confidence,
-      notes,
+      noteCell,
       ...rest
     ]);
   }
@@ -734,7 +857,21 @@ function normalizeMappingExactComponentCell(
       intendedPattern,
       mentionedAllowedComponents[0],
       confidence,
-      notes,
+      noteCell,
+      ...rest
+    ]);
+  }
+
+  if (
+    mentionedAllowedComponents.length > 0 &&
+    exactCell !== mentionedAllowedComponents[0]
+  ) {
+    return formatMarkdownTableRow([
+      uiElement,
+      intendedPattern,
+      mentionedAllowedComponents[0],
+      confidence,
+      noteCell,
       ...rest
     ]);
   }
@@ -745,12 +882,31 @@ function normalizeMappingExactComponentCell(
       intendedPattern,
       "Unknown / verify from Kaze",
       confidence,
-      notes,
+      noteCell,
+      ...rest
+    ]);
+  }
+
+  if (noteCell !== notes) {
+    return formatMarkdownTableRow([
+      uiElement,
+      intendedPattern,
+      exactComponent,
+      confidence,
+      noteCell,
       ...rest
     ]);
   }
 
   return line;
+}
+
+function exactCellContainsIconDescription(exactCell: string): boolean {
+  return (
+    /Font Awesome/i.test(exactCell) ||
+    /\b(?:plus|microphone|image|pen|edit|globe|close)\s+icons?\b/i.test(exactCell) ||
+    /\bicons?\s*(?:name|description)?\b/i.test(exactCell)
+  );
 }
 
 function parseMarkdownTableRow(line: string): string[] | null {
@@ -802,7 +958,14 @@ function sanitizeClinePrompt(prompt: string | undefined): string | undefined {
     return prompt;
   }
 
-  const sanitizedPrompt = prompt
+  const sanitizedPrompt = replaceUnsafeExactDarkVisualLines(
+    prompt,
+    "Dark mode using existing Kaze/project tokens or styles."
+  )
+    .replace(
+      /Dark mode\s*\(#000000 background,\s*light text\)\.?/gi,
+      "Dark mode using existing Kaze/project tokens or styles."
+    )
     .replace(
       /Use KazeInput or similar text component for the greeting if supported, otherwise use raw HTML with verified typography styles\.?/gi,
       "Use the existing project typography/heading pattern for the greeting. If Kaze has a confirmed typography component, use it; otherwise use the approved project text pattern."
@@ -990,6 +1153,14 @@ function validateFinalOutput(params: {
     {
       label: "Screen reader announces dynamic state changes or TODO placeholders correctly",
       pattern: /Screen reader announces dynamic state changes or TODO placeholders correctly/i
+    },
+    {
+      label: "Unknown / verify from Kaze or Unknown / verify from Kaze",
+      pattern: /Unknown \/ verify from Kaze or Unknown \/ verify from Kaze/i
+    },
+    {
+      label: "typography specs",
+      pattern: /typography specs/i
     }
   ];
 
@@ -1069,6 +1240,16 @@ function validateFinalOutput(params: {
   warnings.push(...manifestWarnings);
   reviewIssues.push(...manifestWarnings);
 
+  const visualWarnings = validateHandoffAndClineVisualSafety(params.files);
+  warnings.push(...visualWarnings);
+  reviewIssues.push(...visualWarnings);
+
+  const mappingWarnings = validateKazeComponentMapping(
+    params.files["kaze-component-mapping.md"]
+  );
+  warnings.push(...mappingWarnings);
+  reviewIssues.push(...mappingWarnings);
+
   const manifest = params.files["pack-manifest.md"];
   if (manifest) {
     params.allowedFilenames.forEach((filename) => {
@@ -1131,6 +1312,88 @@ function validateManifestCleanliness(
       ({ label }) =>
         `pack-manifest.md may include content that belongs outside the manifest: ${label}.`
     );
+}
+
+function validateHandoffAndClineVisualSafety(
+  files: Partial<Record<GeneratedFileName, string>>
+): string[] {
+  const warnings: string[] = [];
+
+  if (/#000000/i.test(files["handoff.md"] ?? "")) {
+    warnings.push(
+      "handoff.md contains exact #000000 visual value; use Kaze/project tokens or styles instead."
+    );
+  }
+
+  if (/#000000/i.test(files["cline-implementation-prompt.md"] ?? "")) {
+    warnings.push(
+      "cline-implementation-prompt.md contains exact #000000 visual value; use Kaze/project tokens or styles instead."
+    );
+  }
+
+  return warnings;
+}
+
+function validateKazeComponentMapping(mapping: string | undefined): string[] {
+  if (!mapping) {
+    return [];
+  }
+
+  const warnings: string[] = [];
+  let inComponentMappingTable = false;
+  mapping.split("\n").forEach((line) => {
+    const cells = parseMarkdownTableRow(line);
+    if (!cells) {
+      inComponentMappingTable = false;
+      return;
+    }
+
+    if (cells.some((cell) => /^Exact Kaze Component$/i.test(cell))) {
+      inComponentMappingTable = true;
+      return;
+    }
+
+    if (!isMarkdownTableSeparator(cells) && /^UI Element$/i.test(cells[0])) {
+      inComponentMappingTable = false;
+    }
+
+    if (
+      !inComponentMappingTable ||
+      cells.length < 5 ||
+      isMarkdownTableSeparator(cells)
+    ) {
+      return;
+    }
+
+    const exactComponent = cells[2];
+    if (exactCellContainsIconDescription(exactComponent)) {
+      warnings.push(
+        "kaze-component-mapping.md Exact Kaze Component column contains Font Awesome/icon wording."
+      );
+    }
+
+    if (
+      /Unknown \/ verify from Kaze\s*(?:or|\/)\s*(?:Unknown \/ verify from Kaze|Kaze[A-Z][A-Za-z0-9]*)/i.test(
+        exactComponent
+      )
+    ) {
+      warnings.push(
+        "kaze-component-mapping.md Exact Kaze Component column contains ambiguous mixed component values."
+      );
+    }
+
+    if (
+      exactComponent.trim() &&
+      !/^Unknown \/ verify from Kaze$/.test(exactComponent.trim()) &&
+      !/^Kaze[A-Z][A-Za-z0-9]*$/.test(exactComponent.trim())
+    ) {
+      warnings.push(
+        "kaze-component-mapping.md Exact Kaze Component column must contain one confirmed Kaze component or Unknown / verify from Kaze."
+      );
+    }
+  });
+
+  return uniqueStrings(warnings);
 }
 
 function validateClinePrompt(prompt: string | undefined): string[] {
@@ -1287,12 +1550,26 @@ function validateQaChecklist(checklist: string | undefined): string[] {
     {
       label: "Screen reader announces dynamic state changes or TODO placeholders correctly",
       pattern: /Screen reader announces dynamic state changes or TODO placeholders correctly/i
+    },
+    {
+      label: "typography specs",
+      pattern: /typography specs/i
     }
   ];
 
-  return unsafePatterns
+  const warnings = unsafePatterns
     .filter(({ pattern }) => pattern.test(checklist))
     .map(({ label }) => `qa-checklist.md assumes unconfirmed behaviour: ${label}.`);
+
+  const hasPlainBulletChecklistItem = checklist
+    .split("\n")
+    .some((line) => /^\s*[-*]\s+(?!\[[ x]\]\s*)/i.test(line));
+
+  if (hasPlainBulletChecklistItem) {
+    warnings.push('qa-checklist.md contains checklist bullets that do not start with "- [ ]".');
+  }
+
+  return uniqueStrings(warnings);
 }
 
 function computeQuality(params: {
