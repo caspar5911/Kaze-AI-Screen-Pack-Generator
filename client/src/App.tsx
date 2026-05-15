@@ -1,5 +1,5 @@
 import { Loader2, Moon, Sparkles, Sun } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { generatePack } from "./api/generatePack";
 import { listModels } from "./api/listModels";
 import { AdvancedSettingsCard } from "./components/AdvancedSettingsCard";
@@ -44,6 +44,8 @@ export default function App() {
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [modelListError, setModelListError] = useState("");
   const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState("");
+  const generationProgressTimers = useRef<number[]>([]);
 
   const filenameWarnings = useMemo(
     () => getFilenameWarnings(screenshots),
@@ -72,6 +74,8 @@ export default function App() {
     window.localStorage.setItem(modelStorageKey, form.modelName);
   }, [form.modelName]);
 
+  useEffect(() => () => clearGenerationProgress(false), []);
+
   function updateForm(field: keyof PackFormState, value: string) {
     setForm((current) => ({
       ...current,
@@ -87,6 +91,7 @@ export default function App() {
 
     setIsLoading(true);
     setError("");
+    startGenerationProgress();
 
     try {
       const payload = await generatePack(form, screenshots);
@@ -94,7 +99,30 @@ export default function App() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Generation failed.");
     } finally {
+      clearGenerationProgress(true);
       setIsLoading(false);
+    }
+  }
+
+  function startGenerationProgress() {
+    clearGenerationProgress(true);
+    const progressSteps = [
+      { delay: 0, label: "Stage 1/3: Generating manifest..." },
+      { delay: 1200, label: "Stage 2/3: Generating handoff and mapping..." },
+      { delay: 2400, label: "Stage 3/3: Generating Cline prompt and QA checklist..." },
+      { delay: 3600, label: "Validating generated pack..." }
+    ];
+
+    generationProgressTimers.current = progressSteps.map((step) =>
+      window.setTimeout(() => setGenerationProgress(step.label), step.delay)
+    );
+  }
+
+  function clearGenerationProgress(resetLabel: boolean) {
+    generationProgressTimers.current.forEach((timer) => window.clearTimeout(timer));
+    generationProgressTimers.current = [];
+    if (resetLabel) {
+      setGenerationProgress("");
     }
   }
 
@@ -188,7 +216,9 @@ export default function App() {
             ) : (
               <Sparkles aria-hidden="true" size={18} />
             )}
-            {isLoading ? "Generating..." : "Generate Implementation Pack"}
+            {isLoading
+              ? generationProgress || "Generating..."
+              : "Generate Implementation Pack"}
           </button>
         </form>
 
