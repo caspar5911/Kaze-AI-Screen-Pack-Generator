@@ -272,7 +272,9 @@ function parseGeneratedResponse(params: {
     params.allowedFilenames,
   );
 
-  const files = stripReasoningBlocksFromFiles(parseFiles(filenameSanitized.text));
+  const files = stripReasoningBlocksFromFiles(
+    parseFiles(filenameSanitized.text),
+  );
   const sanitizedFiles = sanitizeParsedFiles(
     files,
     params.kazeComponentCatalog,
@@ -322,7 +324,11 @@ function stripReasoningBlocks(text: string): {
   changed: boolean;
 } {
   const stripped = ["details", "think", "thinking"]
-    .reduce((currentText, tagName) => stripTaggedReasoningBlocks(currentText, tagName), text)
+    .reduce(
+      (currentText, tagName) =>
+        stripTaggedReasoningBlocks(currentText, tagName),
+      text,
+    )
     .trim();
   return {
     text: stripped,
@@ -345,13 +351,9 @@ function stripTaggedReasoningBlocks(text: string, tagName: string): string {
     const closePattern = new RegExp(`</${escapedTagName}>`, "i");
     const closeMatch = closePattern.exec(stripped.slice(contentStart));
     const nextFileMarkerIndex = findNextFileMarkerIndex(stripped, contentStart);
-    const closeIndex = closeMatch
-      ? contentStart + closeMatch.index
-      : -1;
+    const closeIndex = closeMatch ? contentStart + closeMatch.index : -1;
     const closeEndIndex =
-      closeIndex >= 0 && closeMatch
-        ? closeIndex + closeMatch[0].length
-        : -1;
+      closeIndex >= 0 && closeMatch ? closeIndex + closeMatch[0].length : -1;
     const removalEnd =
       closeEndIndex >= 0 &&
       (nextFileMarkerIndex === -1 || closeIndex < nextFileMarkerIndex)
@@ -756,9 +758,51 @@ function sanitizeParsedFiles(
     ),
   };
 
-  return repairKazeMappingSourceFilesFromManifest(
+  const filesWithoutLeftoverRows = removeScreenSpecificRows(
     ensureComponentGalleryMappingContent(sanitizedFiles),
   );
+
+  return repairKazeMappingSourceFilesFromManifest(filesWithoutLeftoverRows);
+}
+
+function removeScreenSpecificRows(
+  files: Partial<Record<GeneratedFileName, string>>,
+): Partial<Record<GeneratedFileName, string>> {
+  const manifest = files["pack-manifest.md"] ?? "";
+  const mapping = files["kaze-component-mapping.md"];
+
+  // Only remove these rows for component gallery packs (not AI assistant packs)
+  const isGallery =
+    /Kaze Component Gallery|Kaze UI Components Gallery|UI Components Gallery|KazeComponentGallery/i.test(
+      manifest,
+    );
+
+  // For AI assistant packs, keep the rows
+  const isAssistant =
+    /HomeGreeting|assistant|prompt input|thinking selector|microphone|voice input|quick actions?/i.test(
+      manifest,
+    );
+
+  // Only strip leftover rows for gallery packs, never for assistant packs
+  if (!mapping || !isGallery || isAssistant) {
+    return files;
+  }
+
+  const rowsToRemove = [
+    /Microphone Button/i,
+    /Quick Action Buttons/i,
+    /Sidebar Icon Buttons/i,
+  ];
+
+  const cleanedMapping = mapping
+    .split("\n")
+    .filter((line) => !rowsToRemove.some((pattern) => pattern.test(line)))
+    .join("\n");
+
+  return {
+    ...files,
+    "kaze-component-mapping.md": cleanedMapping,
+  };
 }
 
 function repairMissingFilenamePlaceholdersInFiles(
@@ -859,6 +903,13 @@ function ensureComponentGalleryMainMappingRows(mapping: string): string {
       "RadioGroup",
       "High",
       "Grouped single-choice options.",
+    ]),
+    formatMarkdownTableRow([
+      "Notes / multi-line input",
+      "Multi-line text area",
+      "TextArea",
+      "High",
+      "Use TextArea for large or multi-line input areas, notes fields, descriptions, and comments.",
     ]),
   ];
   const existingTable = readMarkdownSection(mapping, "Screen Mapping Table");
@@ -1107,7 +1158,10 @@ function replaceManifestUnknowns(manifest: string, unknowns: string[]): string {
   ].join("\n");
 
   if (/## Unknowns \/ Needs Confirmation[\s\S]*$/i.test(manifest)) {
-    return manifest.replace(/## Unknowns \/ Needs Confirmation[\s\S]*$/i, unknownSection);
+    return manifest.replace(
+      /## Unknowns \/ Needs Confirmation[\s\S]*$/i,
+      unknownSection,
+    );
   }
 
   return `${manifest.trim()}\n\n${unknownSection}`;
@@ -1401,7 +1455,10 @@ function ensureKazeComponentMappingRuleText(
   allowedComponents: Set<string>,
 ): string {
   const confirmedExports = getConfirmedKazeExportList(allowedComponents);
-  const confirmedUsed = getConfirmedExportsUsedInText(mapping, confirmedExports);
+  const confirmedUsed = getConfirmedExportsUsedInText(
+    mapping,
+    confirmedExports,
+  );
   const visualUsed = confirmedUsed.filter(
     (exportName) => !["notification", "useNotification"].includes(exportName),
   );
@@ -1482,7 +1539,10 @@ function ensureKazeComponentMappingRuleText(
     .join("\n\n");
 }
 
-function removeMarkdownSections(markdown: string, sectionNames: string[]): string {
+function removeMarkdownSections(
+  markdown: string,
+  sectionNames: string[],
+): string {
   const sectionAlternation = sectionNames.map(escapeRegExp).join("|");
   const sectionPattern = new RegExp(
     `(^|\\n)## (?:${sectionAlternation})\\s*\\n[\\s\\S]*?(?=\\n## |$)`,
@@ -1972,7 +2032,9 @@ function hasRequiredFinalReportSection(prompt: string): boolean {
   ].every((requiredText) => prompt.includes(requiredText));
 }
 
-function validateFinalOutput(params: FinalValidationParams): FinalValidationResult {
+function validateFinalOutput(
+  params: FinalValidationParams,
+): FinalValidationResult {
   const warnings: string[] = [];
   const failureIssues: string[] = [];
   const reviewIssues: string[] = [];

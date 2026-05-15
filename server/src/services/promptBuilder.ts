@@ -420,10 +420,6 @@ Hard rules for Kaze component detection:
 5. Do not call a button a generic "action control" only — if the screenshot has a clickable action, you must mention Button.
 6. Do not call an input a generic "prompt area" only — if the screenshot has a text input, you must mention TextField or TextArea.
 
-Icon table examples:
-| Microphone Button | Button / icon button | Button | High | Use Font Awesome microphone icon if project setup supports it. |
-| Quick Action Buttons | Button / rounded action button | Button | Medium | Use rounded/button variant if supported; verify existing project pattern. |
-| Sidebar Icon Buttons | Navigation / icon button pattern | Unknown / verify from Kaze | Low | Verify existing project sidebar/navigation pattern. |
 
 CRITICAL: Never output bare "Unknown" by itself. Always write "Unknown / verify from Kaze" as a single token. If you are unsure about a Kaze component, use "Unknown / verify from Kaze" - never just "Unknown". This applies to ALL mapping table cells and ALL notes fields.
 
@@ -855,7 +851,9 @@ function isComponentGalleryContext(
     fields.projectName,
     fields.shortDescription,
     screenName,
-    ...entries.map((entry) => `${entry.filename} ${entry.parsed.screenName ?? ""}`),
+    ...entries.map(
+      (entry) => `${entry.filename} ${entry.parsed.screenName ?? ""}`,
+    ),
   ].join(" ");
 
   return /component\s*gallery|components\s*gallery|kaze\s*component|kaze\s*ui\s*components/i.test(
