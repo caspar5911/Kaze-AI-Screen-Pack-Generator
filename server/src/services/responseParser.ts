@@ -627,6 +627,17 @@ function repairUnsafeQaAndFallbackText(
       replacement: fallbackRule,
       label: "use a standard accessible fallback until confirmed",
     },
+    {
+      patterns: [
+        /Does not invent\s+`?Unknown \/ verify from Kaze`?/i,
+        /Does not invent Unknown \/ verify from Kaze/i,
+      ],
+      replacement: [
+        "- [ ] Uses `Unknown / verify from Kaze` only as a fallback label, not as a component name.",
+        "- [ ] Does not invent `KazeIcon`.",
+      ].join("\n"),
+      label: "Does not invent Unknown / verify from Kaze",
+    },
   ];
 
   const repairedLines = text.split("\n").map((line) => {
@@ -1542,7 +1553,7 @@ function ensureKazeComponentMappingRuleText(
     "- Use the existing project icon pattern if one exists.",
     "- Use inline SVG only if the project has no icon pattern.",
     "- Do not install a new icon library.",
-    "- Do not assume Font Awesome, Lucide, Heroicons, Material Icons, or React Icons unless the project already uses it.",
+    "- Do not assume any specific icon library unless the project already confirms one.",
     "- Do not invent `KazeIcon`.",
   ].join("\n");
 
@@ -2150,9 +2161,7 @@ function validateFinalOutput(
     { label: "Initial / Empty", pattern: /Initial\s*\/\s*Empty/i },
     { label: "Empty no history", pattern: /Empty no history/i },
     { label: "<details", pattern: /<details/i, failure: true },
-    { label: "reasoning", pattern: /\breasoning\b/i },
     { label: "Thought for", pattern: /Thought for/i, failure: true },
-    { label: "analysis", pattern: /\banalysis\b/i, failure: true },
     {
       label: "Use KazeInput or similar text component for the greeting",
       pattern: /Use KazeInput or similar text component for the greeting/i,

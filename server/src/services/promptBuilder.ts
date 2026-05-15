@@ -341,7 +341,7 @@ Visual accuracy:
 - Do not output exact px/hex/radius values.
 - Write "Dark themed background. Follow Kaze/project tokens." instead of #000000.
 - Label estimated spacing as "approximate visual estimate".
-- For unknown icons: "Unknown / verify from Kaze or use existing project icon pattern or SVG fallback".
+- Icons in buttons, breadcrumbs, or actions: use the existing project icon pattern or inline SVG fallback. There is no confirmed Kaze "Icon" export.
 
 State rules for landing screens:
 - Default: shown
@@ -962,9 +962,10 @@ export function buildLocalQaChecklist(): string {
     "",
     "## 7. Icon Usage",
     "- [ ] Does not invent `KazeIcon`.",
-    "- [ ] Does not assume Font Awesome, Lucide, Heroicons, Material Icons, or React Icons.",
+    "- [ ] Does not assume a specific icon library without project confirmation.",
     "- [ ] Uses existing project icon pattern if available.",
     "- [ ] Uses SVG fallback only if no project icon pattern exists.",
+    "- [ ] Does not install a new icon dependency.",
   ].join("\n");
 }
 

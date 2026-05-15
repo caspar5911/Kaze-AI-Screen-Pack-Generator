@@ -30,7 +30,7 @@ const defaultForm: PackFormState = {
   projectName: "",
   shortDescription: "",
   designSource: "Screenshot export",
-  iconSystem: "Font Awesome",
+  iconSystem: "Project icon pattern or SVG fallback",
   additionalNotes: "",
   aiEndpointUrl: "http://localhost:11434/api/chat",
   modelName: "qwen3.6:35b",
@@ -218,6 +218,7 @@ export default function App() {
 
     setIsLoading(true);
     setError("");
+    setResponse(null);
     startGenerationProgress();
 
     try {
