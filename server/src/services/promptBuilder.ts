@@ -341,7 +341,7 @@ Visual accuracy:
 - Do not output exact px/hex/radius values.
 - Write "Dark themed background. Follow Kaze/project tokens." instead of #000000.
 - Label estimated spacing as "approximate visual estimate".
-- Icons in buttons, breadcrumbs, or actions: use the existing project icon pattern or inline SVG fallback. There is no confirmed Kaze "Icon" export.
+- Icons: Use the existing project icon pattern or inline SVG fallback. There is no confirmed Kaze "Icon" export.
 
 State rules for landing screens:
 - Default: shown
