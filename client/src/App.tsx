@@ -237,17 +237,9 @@ export default function App() {
   function startGenerationProgress() {
     clearGenerationProgress(true);
     const progressSteps = [
-      { delay: 0, label: "Stage 1/3: Generating manifest..." },
-      {
-        delay: 1200,
-        label:
-          "Generating handoff and mapping. Vision models can take 1-2 minutes.",
-      },
-      {
-        delay: 120000,
-        label:
-          "Still generating handoff and mapping. Vision models can take 1-2 minutes.",
-      },
+      { delay: 0, label: "Generating..." },
+      { delay: 5000, label: "Analyzing screenshots..." },
+      { delay: 15000, label: "Building pack files..." },
     ];
 
     generationProgressTimers.current = progressSteps.map((step) =>

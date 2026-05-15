@@ -341,7 +341,7 @@ Visual accuracy:
 - Do not output exact px/hex/radius values.
 - Write "Dark themed background. Follow Kaze/project tokens." instead of #000000.
 - Label estimated spacing as "approximate visual estimate".
-- Icons: Use the existing project icon pattern or inline SVG fallback. There is no confirmed Kaze "Icon" export.
+- Icons: Use the existing project icon pattern if available; otherwise use inline SVG fallback. Do not assume or install any icon library. There is no confirmed Kaze "Icon" export.
 
 State rules for landing screens:
 - Default: shown
@@ -424,7 +424,7 @@ Hard rules for Kaze component detection:
 CRITICAL: Never output bare "Unknown" by itself. Always write "Unknown / verify from Kaze" as a single token. If you are unsure about a Kaze component, use "Unknown / verify from Kaze" - never just "Unknown". This applies to ALL mapping table cells and ALL notes fields.
 
 Output rules:
-- Output only the two file sections. No reasoning, analysis, citations, or commentary.
+- Output only the two file sections. No private reasoning, citations, or commentary.
 - Keep each file concise. Do not repeat the full pack context, catalog JSON, or File Map in the output.
 - Prefer short bullets over paragraphs.
 
