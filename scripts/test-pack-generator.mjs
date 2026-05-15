@@ -31,7 +31,7 @@ const fields = {
   shortDescription:
     "Reference screen showing categorized Kaze UI components, utility exports, and visual usage patterns.",
   designSource: "Screenshot export",
-  iconSystem: "Font Awesome",
+  iconSystem: "Project icon pattern or SVG fallback",
   additionalNotes: "",
 };
 const fileMapEntries = [
@@ -337,7 +337,10 @@ const allContent = Object.values(result.files).join("\n\n");
 
 assert.equal(result.quality.status, "ready", result.quality.issues.join("\n"));
 assert.match(manifest, /Kaze Component Gallery/);
-assert.match(manifest, /screenshots\/KazeComponentGallery_Default_Desktop\.png/);
+assert.match(
+  manifest,
+  /screenshots\/KazeComponentGallery_Default_Desktop\.png/,
+);
 assert.match(mapping, /`?Button`?/);
 assert.match(mapping, /`?TextField`?/);
 assert.match(mapping, /`?Avatar`?/);

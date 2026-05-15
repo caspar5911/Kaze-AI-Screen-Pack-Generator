@@ -1279,8 +1279,8 @@ function sanitizeHandoffContent(
       "dark themed background using existing Kaze/project tokens or styles",
     )
     .replace(
-      /Specific Font Awesome icons for the sidebar and quick actions\s*\([^)]*plus[^)]*microphone[^)]*image[^)]*pen[^)]*globe[^)]*\)\.?/gi,
-      "Specific Font Awesome icons should be verified against the project icon setup.",
+      /Specific icon library icons for the sidebar and quick actions\s*\([^)]*plus[^)]*microphone[^)]*image[^)]*pen[^)]*globe[^)]*\)\.?/gi,
+      "Specific icon library names should be verified against the project icon setup.",
     )
     .replace(
       /Select a mode from the dropdown selector\.?/gi,
@@ -1384,14 +1384,14 @@ function sanitizeKazeComponentMappingContent(
         if (/sidebar\s+nav\s+icons?/i.test(normalizedLine)) {
           return normalizedLine.replace(
             /Known standard icon/gi,
-            "Unknown / verify Font Awesome icon",
+            "Unknown / verify from Kaze or use existing project icon pattern or SVG fallback",
           );
         }
 
-        const iconDescription = inferFontAwesomeIconDescription(normalizedLine);
+        const iconDescription = inferIconDescription(normalizedLine);
         return normalizedLine.replace(
           /Known standard icon/gi,
-          `Likely Font Awesome ${iconDescription}; verify project icon setup.`,
+          `Likely project icon pattern or inline SVG fallback; verify project icon setup.`,
         );
       })
       .join("\n"),
@@ -1473,6 +1473,7 @@ function ensureKazeComponentMappingRuleText(
     "Confirmed Kaze Exports Used",
     "Forbidden Fake Names",
     "Fallback Rule",
+    "Icon Usage Rule",
   ]);
 
   const canonicalGuidance = [
@@ -1532,6 +1533,17 @@ function ensureKazeComponentMappingRuleText(
     "Do not invent components such as `KazeCard`, `KazeSidebar`, `KazeIcon`, `KazeLayout`, `KazeBox`, or `KazeFlex`.",
     "",
     `Primary fake aliases that must never be imported as valid exports: ${primaryFakeNames.map((name) => `\`${name}\``).join(", ")}.`,
+    "",
+    "## Icon Usage Rule",
+    "",
+    "There is no confirmed `Icon` export from `@pcs-security/kaze-ui-library`.",
+    "",
+    "If the screenshot shows icons:",
+    "- Use the existing project icon pattern if one exists.",
+    "- Use inline SVG only if the project has no icon pattern.",
+    "- Do not install a new icon library.",
+    "- Do not assume Font Awesome, Lucide, Heroicons, Material Icons, or React Icons unless the project already uses it.",
+    "- Do not invent `KazeIcon`.",
   ].join("\n");
 
   return [mappingWithoutGuidance.trim(), canonicalGuidance.trim()]
@@ -1644,7 +1656,7 @@ function normalizeMappingExactComponentCell(
       "Button / icon button",
       allowedComponents.has("Button") ? "Button" : "Unknown / verify from Kaze",
       allowedComponents.has("Button") ? "High" : "Low",
-      "Use Font Awesome microphone icon if project setup supports it.",
+      "Use existing project icon pattern or SVG fallback; verify project icon setup.",
       ...rest,
     ]);
   }
@@ -1874,11 +1886,9 @@ function normalizeIconMappingExactComponentCell(line: string): string {
 
 function exactCellContainsIconDescription(exactCell: string): boolean {
   return (
-    /Font Awesome/i.test(exactCell) ||
     /\b(?:plus|microphone|image|pen|edit|globe|close)\s+icons?\b/i.test(
       exactCell,
-    ) ||
-    /\bicons?\s*(?:name|description)?\b/i.test(exactCell)
+    ) || /\bicons?\s*(?:name|description)?\b/i.test(exactCell)
   );
 }
 
@@ -1902,7 +1912,7 @@ function isMarkdownTableSeparator(cells: string[]): boolean {
   return cells.every((cell) => /^:?-{3,}:?$/.test(cell));
 }
 
-function inferFontAwesomeIconDescription(line: string): string {
+function inferIconDescription(line: string): string {
   if (/plus|attachment/i.test(line)) {
     return "plus icon";
   }
@@ -2083,6 +2093,29 @@ function validateFinalOutput(
       }
     });
   }
+
+  // Check for hardcoded icon library names
+  const HARDCODED_ICON_LIBRARIES = [
+    "Font Awesome",
+    "Lucide",
+    "Heroicons",
+    "Material Icons",
+    "React Icons",
+  ];
+  const ALLOWED_ICON_CONTEXT =
+    /user provided|existing project uses|confirmed project dependency|package\.json confirms|does not assume|does not install|do not assume|do not install/i;
+
+  const finalTextForIconScan = finalTextForRiskScan;
+  HARDCODED_ICON_LIBRARIES.forEach((library) => {
+    const libraryPattern = new RegExp(`\\b${escapeRegExp(library)}\\b`, "i");
+    if (
+      libraryPattern.test(finalTextForIconScan) &&
+      !ALLOWED_ICON_CONTEXT.test(finalTextForIconScan)
+    ) {
+      const message = `Generated output mentions "${library}" without confirmation that the project uses it.`;
+      addWarning(message, `Icon library assumption detected: ${library}.`);
+    }
+  });
 
   const riskyFinalPatterns: Array<{
     label: string;
@@ -3055,6 +3088,7 @@ function computeQuality(params: {
   warnings: string[];
   failureIssues: string[];
   reviewIssues: string[];
+  combinedText?: string;
 }): GenerationQuality {
   const failureIssues = uniqueStrings(params.failureIssues);
   const reviewIssues = uniqueStrings([
@@ -3068,6 +3102,35 @@ function computeQuality(params: {
       label: "Failed",
       score: 0,
       issues: uniqueStrings([...failureIssues, ...reviewIssues]),
+    };
+  }
+
+  const text = params.combinedText ?? "";
+
+  // Score cap rules for icon assumptions
+  if (
+    /\bFont Awesome\b/i.test(text) ||
+    /\bLucide\b/i.test(text) ||
+    /\bHeroicons\b/i.test(text) ||
+    /\bMaterial Icons\b/i.test(text) ||
+    /\bReact Icons\b/i.test(text)
+  ) {
+    // Icon library assumption detected - cap at 9.4
+    return {
+      status: "needs_review",
+      label: "9.4/10 - Icon assumption detected",
+      score: 9,
+      issues: [...reviewIssues, "Icon library mentioned without confirmation."],
+    };
+  }
+
+  if (/\bKazeIcon\b/i.test(text)) {
+    // Fake KazeIcon invented - cap at 6
+    return {
+      status: "needs_review",
+      label: "6/10 - KazeIcon invented",
+      score: 6,
+      issues: [...reviewIssues, "Invented KazeIcon export."],
     };
   }
 
