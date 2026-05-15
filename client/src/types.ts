@@ -12,10 +12,20 @@ export type GeneratedFiles = Partial<Record<GeneratedFileName, string>>;
 
 export type OutputTabName = GeneratedFileName | "Raw Response";
 
+export type GenerationQualityStatus = "ready" | "needs_review" | "failed";
+
+export interface GenerationQuality {
+  status: GenerationQualityStatus;
+  label: string;
+  score: number;
+  issues: string[];
+}
+
 export interface GeneratePackResponse {
   files: GeneratedFiles;
   warnings: string[];
   rawResponse: string;
+  quality: GenerationQuality;
 }
 
 export interface PackFormState {

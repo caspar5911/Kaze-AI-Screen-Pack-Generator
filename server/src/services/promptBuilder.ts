@@ -74,15 +74,13 @@ export function buildAiPrompt(params: {
 
 Your job is to generate an implementation-ready markdown pack from uploaded screen screenshots.
 
-Keep pack-manifest.md clean and high-level. Do not include Kaze tokens, colors, spacing, component names, CSS, implementation details, API details, or route details in pack-manifest.md.
+Keep pack-manifest.md clean and high-level. Do not include Kaze tokens, color tokens, spacing tokens, CSS values, component names, implementation instructions, API endpoints, route details, or exact pixel values in pack-manifest.md.
 
-Allowed exact Kaze components are ONLY the components listed under Confirmed Kaze Components in kaze-component-catalog.md. Do not output any Kaze* component name that is not listed there. For sidebar, avatar, typography, layout, icon wrapper, card, or prompt bar, output "Unknown / verify from Kaze" unless the catalog explicitly confirms the component.
+Allowed exact Kaze components are ONLY those listed under Confirmed Kaze Components in kaze-component-catalog.md. Do not output any Kaze* component name that is not listed there. If a UI pattern is not confirmed, output "Unknown / verify from Kaze".
 
-Do not output these unless listed in catalog:
-- KazeGreeting
-- KazePromptBar
-- KazeSidebar
+Do not output these unless they are explicitly listed in kaze-component-catalog.md:
 - KazeAvatar
+- KazeSidebar
 - KazeCard
 - KazeIcon
 - KazeLayout
@@ -91,6 +89,11 @@ Do not output these unless listed in catalog:
 - KazeFlex
 - KazeBox
 - KazeHeading
+- KazeGreeting
+- KazePromptBar
+
+For avatar/profile badge, sidebar/navigation rail, typography, layout, card, icon wrapper, or prompt bar, output:
+Unknown / verify from Kaze
 
 Input:
 - pack-input.md
@@ -111,6 +114,8 @@ Filename rules:
 - Use only filenames from the File Map.
 - Do not invent filenames.
 - Do not rename screenshots.
+- Do not shorten filenames.
+- Do not infer alternate filenames.
 - Derive ScreenName, State, and Viewport only from "Parsed Screenshot Names".
 - Filename parsing rule: remove extension, split basename by "_", first part = ScreenName, last part = Viewport, middle part(s) joined by "_" = State.
 - Example: HomeGreeting_Default_Desktop.png parses as ScreenName = HomeGreeting, State = Default, Viewport = Desktop.
@@ -142,8 +147,8 @@ Critical visual accuracy rules:
 - For unknown icons, write "Unknown / verify Font Awesome icon" instead of guessing.
 
 Output rules:
-- Output only the final markdown files.
-- Do not include reasoning, chain-of-thought, analysis, citations, <details> blocks, or explanatory notes.
+- Output only the five markdown files.
+- Do not include reasoning, chain-of-thought, analysis, citations, <details> blocks, commentary, explanation, or explanatory notes outside the file sections.
 - Use this exact file separation format:
 
 --- File: pack-manifest.md ---
@@ -174,21 +179,40 @@ Must include:
 - Detected viewport for each screenshot
 - Inferred screen purpose
 - Main visible actions
-- Screen/flow unknowns
+- Unknowns / Needs Confirmation section
 
 pack-manifest.md must stay clean. Do not include:
 - Kaze component verification
 - confirmed Kaze components
 - Kaze token details
+- design token details
 - color tokens
-- spacing tokens
+- spacing details
 - component names
 - implementation details
 - implementation instructions
 - API endpoint details
 - route details
+- route names
+- URLs
+- Storybook instructions
 - CSS values
+- px values
 - exact pixel values
+
+Do not write "Exact spacing and sizing tokens are not provided in the design specs." in pack-manifest.md. Write "Detailed layout measurements are not provided." or omit the note.
+
+Do not write "Animation behavior for the Thinking selector and quick action buttons is unconfirmed." in pack-manifest.md. Write "Interaction behaviour for the Thinking selector and quick action buttons is unconfirmed."
+
+If route details are unknown, write only:
+Navigation behaviour is not confirmed.
+
+Do not write route details, route names, URLs, API endpoints, or implementation assumptions in pack-manifest.md.
+
+Unknown items in pack-manifest.md must be under this exact heading:
+## Unknowns / Needs Confirmation
+
+Do not leave unknowns as loose bullets after Main Visible Actions.
 
 Keep component verification out of pack-manifest.md. Component mapping belongs in kaze-component-mapping.md.
 
@@ -213,14 +237,43 @@ Required states rules for handoff.md:
   - Disabled: unknown, only if rules require it
 - Do not include generic loading, empty, error, or disabled states as if all are required.
 
+Icon wording rule for handoff.md:
+- Write "Specific Font Awesome icons should be verified against the project icon setup."
+- Do not write likely icon candidate lists such as "plus, microphone, image, pen, globe are likely candidates".
+
+Interaction wording rule for handoff.md:
+- Write "Interact with the visible \`Thinking\` selector. Exact options are unknown."
+- Do not write "Select a mode from the dropdown selector".
+
 3. kaze-component-mapping.md
 Must include:
 - Source files
 - Rule section
-- Screen-specific mapping table
+- Screen-specific mapping table using exactly this column pattern:
+  | UI Element | Intended Kaze Pattern | Exact Kaze Component | Confidence | Notes |
 - Icon mapping table
 - Confidence levels
 - Unknown / verify from Kaze where needed
+
+kaze-component-mapping.md rules:
+- If component exists in catalog, use exact component.
+- If not in catalog, use "Unknown / verify from Kaze".
+- Do not use fake Kaze* names.
+- For uncertain icons, use "Unknown / verify Font Awesome icon".
+- Only high-confidence icons like plus, microphone, image, pen, and globe can be named.
+- Prompt input can map to KazeInput if catalog confirms it.
+- Buttons can map to KazeButton if catalog confirms it.
+- Thinking selector can map to KazeSelect if catalog confirms it.
+- Sidebar, avatar, typography, layout, and prompt bar must remain "Unknown / verify from Kaze" unless the catalog confirms them.
+
+Icon table wording rules:
+- Do not write "Known standard icon".
+- For Plus / Attachment, write "Likely Font Awesome plus icon; verify project icon setup."
+- For Microphone, write "Likely Font Awesome microphone icon; verify project icon setup."
+- For Image, write "Likely Font Awesome image icon; verify project icon setup."
+- For Pen / Edit, write "Likely Font Awesome pen/edit icon; verify project icon setup."
+- For Globe, write "Likely Font Awesome globe icon; verify project icon setup."
+- For Sidebar Nav Icons, write "Unknown / verify Font Awesome icon."
 
 4. cline-implementation-prompt.md
 Must include:
@@ -233,12 +286,45 @@ Must include:
 
 The Cline prompt must instruct the coding agent to:
 - Inspect actual project structure
-- Find existing Kaze usage
-- Inspect package exports
+- Inspect existing Kaze usage examples
+- Inspect Kaze package exports
 - Inspect Storybook/docs if available
 - Verify exact Kaze components and props
-- Avoid guessed Kaze components
+- Do not use guessed Kaze components
 - Run typecheck/build if available
+
+The Cline prompt must include this exact section:
+
+## Critical First Step
+
+Before writing code:
+
+1. Inspect actual project structure.
+2. Inspect existing pages/screens that already use Kaze.
+3. Inspect Kaze package exports.
+4. Inspect Kaze Storybook/docs if available.
+5. Confirm exact Kaze component names and props.
+6. Do not use guessed Kaze components.
+7. If a suggested Kaze component does not exist, use the closest approved Kaze/project pattern and report it.
+
+The exact phrase "Inspect actual project structure." must appear in cline-implementation-prompt.md.
+
+The Cline prompt must include these implementation rules:
+- Use Kaze components where available.
+- Do not use raw input/button/select/table/modal/form controls if Kaze equivalents exist.
+- Use raw HTML only for non-interactive layout wrappers.
+- Do not use Ant Design directly if Kaze wraps it.
+- Do not invent routes.
+- Do not invent APIs.
+- Do not invent dropdown values.
+- Do not invent permission rules.
+- Mark unknown behaviour as TODO.
+- Run typecheck/build if available.
+- Report unresolved unknowns and fallback choices.
+- Do not write "Use KazeInput or similar text component for the greeting if supported, otherwise use raw HTML with verified typography styles."
+- Instead write "Use the existing project typography/heading pattern for the greeting. If Kaze has a confirmed typography component, use it; otherwise use the approved project text pattern."
+- Do not write "Use KazeInput or similar for the sidebar if it's interactive, otherwise verify sidebar pattern."
+- Instead write "Use the existing project sidebar/navigation pattern if available. Do not use KazeInput for sidebar/navigation. If no approved pattern exists, document the fallback and keep raw HTML limited to non-interactive layout wrappers."
 
 The Cline prompt must include this fallback rule:
 If a Kaze component is not verified:
@@ -259,9 +345,19 @@ Must include:
 QA checklist wording rules:
 - Do not assume optional behaviours work.
 - Write "Sidebar navigation is implemented or marked as TODO." instead of "Sidebar navigation routes to correct sections."
+- Write "Sidebar navigation is implemented or marked as TODO." instead of "Sidebar links navigate correctly."
 - Write "Avatar interaction is implemented or marked as TODO." instead of "Avatar click opens profile/account menu."
+- Write "Avatar interaction is implemented or marked as TODO." instead of "Avatar opens profile menu."
 - Write "Voice button behaviour is implemented or marked as TODO." instead of "Voice button triggers expected input state."
+- Write "Voice button behaviour is implemented or marked as TODO." instead of "Voice button triggers expected audio UI."
+- Write "Voice button behaviour is implemented or marked as TODO." instead of "Voice button toggles between idle and recording states."
+- Write "Microphone button behaviour is implemented or marked as TODO." instead of "Microphone button triggers audio input."
+- Write "Thinking selector behaviour is implemented or marked as TODO." instead of "Thinking dropdown opens and allows selection."
+- Write '"Thinking" selector behaviour is implemented or marked as TODO.' instead of '"Thinking" selector opens and allows selection.'
+- Write "Thinking selector behaviour is implemented or marked as TODO." instead of "Thinking selector displays options and updates on change."
 - Write "Quick action button behaviour is implemented or marked as TODO." instead of "Quick action buttons trigger appropriate flows."
+- Write "Quick action behaviour is implemented or marked as TODO." instead of "Quick action buttons navigate to or trigger their respective flows."
+- Write "White action button behaviour is implemented or marked as TODO." instead of "White action button triggers submission."
 
 Now generate the five markdown files.
 

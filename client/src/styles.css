@@ -677,8 +677,45 @@ h3 {
   font-size: 0.9rem;
 }
 
+.quality-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  margin-top: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted-strong);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.quality-pill--ready {
+  border-color: rgba(88, 214, 141, 0.45);
+  background: rgba(88, 214, 141, 0.12);
+  color: var(--success);
+}
+
+.quality-pill--needs_review {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.quality-pill--failed {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
 .warning-box--compact {
   margin: 0 18px 14px;
+}
+
+.warning-box__title {
+  margin-bottom: 8px;
+  font-weight: 850;
 }
 
 .tabs {

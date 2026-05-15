@@ -3,6 +3,7 @@ import { downloadMarkdownZip } from "../utils/downloadZip";
 import {
   EXPECTED_FILES,
   type GeneratedFiles,
+  type GenerationQuality,
   type OutputTabName
 } from "../types";
 import { CopyButtons } from "./CopyButtons";
@@ -11,6 +12,7 @@ interface OutputTabsProps {
   files: GeneratedFiles;
   rawResponse: string;
   warnings: string[];
+  quality: GenerationQuality;
   projectName: string;
   onRegenerate: () => void;
   isLoading: boolean;
@@ -20,6 +22,7 @@ export function OutputTabs({
   files,
   rawResponse,
   warnings,
+  quality,
   projectName,
   onRegenerate,
   isLoading
@@ -67,6 +70,9 @@ export function OutputTabs({
       <div className="output-toolbar">
         <div>
           <h2 id="output-heading">Generated Pack</h2>
+          <div className={`quality-pill quality-pill--${quality.status}`}>
+            {quality.label}
+          </div>
           {hasParseWarning && (
             <p className="output-warning">
               Could not parse all expected files. Showing raw response.
@@ -95,6 +101,7 @@ export function OutputTabs({
 
       {warnings.length > 0 && (
         <div className="warning-box warning-box--compact">
+          <div className="warning-box__title">Generation Warnings</div>
           <ul>
             {warnings.map((warning) => (
               <li key={warning}>{warning}</li>

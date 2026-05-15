@@ -2,10 +2,20 @@ import { EXPECTED_FILE_NAMES } from "./responseParserConstants.js";
 
 export type GeneratedFileName = (typeof EXPECTED_FILE_NAMES)[number];
 
+export type GenerationQualityStatus = "ready" | "needs_review" | "failed";
+
+export interface GenerationQuality {
+  status: GenerationQualityStatus;
+  label: string;
+  score: number;
+  issues: string[];
+}
+
 export interface ParsedAiResponse {
   files: Partial<Record<GeneratedFileName, string>>;
   rawResponse: string;
   warnings: string[];
+  quality: GenerationQuality;
 }
 
 export interface ParsedFilenameContext {
@@ -14,6 +24,26 @@ export interface ParsedFilenameContext {
   state: string | null;
   viewport: string | null;
 }
+
+interface FinalValidationResult {
+  warnings: string[];
+  failureIssues: string[];
+  reviewIssues: string[];
+}
+
+const CRITICAL_FIRST_STEP_SECTION = [
+  "## Critical First Step",
+  "",
+  "Before writing code:",
+  "",
+  "1. Inspect actual project structure.",
+  "2. Inspect existing pages/screens that already use Kaze.",
+  "3. Inspect Kaze package exports.",
+  "4. Inspect Kaze Storybook/docs if available.",
+  "5. Confirm exact Kaze component names and props.",
+  "6. Do not use guessed Kaze components.",
+  "7. If a suggested Kaze component does not exist, use the closest approved Kaze/project pattern and report it."
+].join("\n");
 
 export function parseAiResponse(params: {
   responseText: string;
@@ -24,76 +54,40 @@ export function parseAiResponse(params: {
   const warnings: string[] = [];
   const fenceStripped = stripOuterMarkdownFence(params.responseText);
   const stripped = stripReasoningBlocks(fenceStripped.text);
-  const riskyPhraseWarnings = findRiskyOutputPhrases(params.responseText);
-
-  warnings.push(...riskyPhraseWarnings);
-
-  if (fenceStripped.changed) {
-    warnings.push("Removed outer markdown code fence from the AI response.");
-  }
-
-  if (stripped.changed) {
-    warnings.push("Removed reasoning blocks from the AI response.");
-  }
 
   const headingRepaired = repairScreenHeadings(
     stripped.text,
     params.parsedFilenames ?? []
   );
-  if (headingRepaired.repaired.length > 0) {
-    warnings.push(
-      `Original AI response used invalid screen headings; repaired to ScreenName-only headings. Affected headings: ${headingRepaired.repaired.join(", ")}.`
-    );
-  }
-
   const stateRepaired = repairUnsafeStateLabels(headingRepaired.text);
-  if (stateRepaired.repaired.length > 0) {
-    warnings.push(
-      `Original AI response used unsafe state labels; repaired them. Affected labels: ${stateRepaired.repaired.join(", ")}.`
-    );
-  }
-
   const qaAndFallbackRepaired = repairUnsafeQaAndFallbackText(stateRepaired.text);
-  if (qaAndFallbackRepaired.repaired.length > 0) {
-    warnings.push(
-      `Original AI response used unsafe QA/fallback wording; repaired it. Affected wording: ${qaAndFallbackRepaired.repaired.join(", ")}.`
-    );
-  }
 
   const unavailableFilenameRepaired = qaAndFallbackRepaired.text.replace(
     /\bFilename unavailable\b/gi,
     "Filename missing from File Map"
   );
-  if (unavailableFilenameRepaired !== qaAndFallbackRepaired.text) {
-    warnings.push(
-      'Replaced "Filename unavailable" with "Filename missing from File Map".'
-    );
-  }
 
   const componentSanitized = replaceUnconfirmedKazeComponents(
     unavailableFilenameRepaired,
     params.kazeComponentCatalog
   );
-  if (componentSanitized.replaced.length > 0) {
-    warnings.push(
-      `Original AI response used unconfirmed Kaze component names; replaced with "Unknown / verify from Kaze": ${componentSanitized.replaced.join(", ")}.`
-    );
-  }
 
   const filenameSanitized = replaceInventedFilenames(
     componentSanitized.text,
     params.allowedFilenames
   );
-  if (filenameSanitized.replaced.length > 0) {
-    warnings.push(
-      `Original AI response used filenames not present in the File Map; replaced them: ${filenameSanitized.replaced.join(", ")}.`
-    );
-  }
 
   const files = parseFiles(filenameSanitized.text);
-  const missingFiles = EXPECTED_FILE_NAMES.filter((filename) => !files[filename]);
+  const sanitizedFiles = sanitizeParsedFiles(files);
+  const missingFiles = EXPECTED_FILE_NAMES.filter((filename) => !sanitizedFiles[filename]);
+  const finalValidation = validateFinalOutput({
+    text: filenameSanitized.text,
+    files: sanitizedFiles,
+    allowedFilenames: params.allowedFilenames,
+    parsedFilenames: params.parsedFilenames ?? []
+  });
 
-  warnings.push(...validateManifestCleanliness(files));
+  warnings.push(...finalValidation.warnings);
 
   if (missingFiles.length > 0) {
     warnings.push(
@@ -101,10 +95,23 @@ export function parseAiResponse(params: {
     );
   }
 
+  const failureIssues = [...finalValidation.failureIssues];
+  if (missingFiles.length > 0) {
+    failureIssues.push(`Missing expected files: ${missingFiles.join(", ")}.`);
+  }
+
+  const dedupedWarnings = uniqueStrings(warnings);
+  const quality = computeQuality({
+    warnings: dedupedWarnings,
+    failureIssues,
+    reviewIssues: finalValidation.reviewIssues
+  });
+
   return {
-    files,
-    rawResponse: filenameSanitized.text,
-    warnings
+    files: sanitizedFiles,
+    rawResponse: params.responseText,
+    warnings: dedupedWarnings,
+    quality
   };
 }
 
@@ -135,35 +142,6 @@ function stripOuterMarkdownFence(text: string): { text: string; changed: boolean
     text: match[1].trim(),
     changed: true
   };
-}
-
-function findRiskyOutputPhrases(text: string): string[] {
-  const riskyPatterns: Array<{ label: string; pattern: RegExp }> = [
-    { label: "Screen: HomeGreeting_Default", pattern: /Screen:\s*HomeGreeting_Default/i },
-    { label: "Default / Empty", pattern: /Default\s*\/\s*Empty/i },
-    { label: "Initial / Empty", pattern: /Initial\s*\/\s*Empty/i },
-    { label: "Filename unavailable", pattern: /Filename unavailable/i },
-    { label: "Chatgpt_default_Desktop.png", pattern: /Chatgpt_default_Desktop\.png/i },
-    { label: "Home_Default_Desktop.png", pattern: /Home_Default_Desktop\.png/i },
-    { label: "<details", pattern: /<details/i },
-    { label: "reasoning", pattern: /\breasoning\b/i },
-    { label: "KazeGreeting", pattern: /\bKazeGreeting\b/ },
-    { label: "KazePromptBar", pattern: /\bKazePromptBar\b/ },
-    { label: "KazeSidebar", pattern: /\bKazeSidebar\b/ },
-    { label: "KazeAvatar", pattern: /\bKazeAvatar\b/ },
-    { label: "KazeCard", pattern: /\bKazeCard\b/ },
-    { label: "KazeIcon", pattern: /\bKazeIcon\b/ },
-    { label: "KazeLayout", pattern: /\bKazeLayout\b/ },
-    { label: "KazeText", pattern: /\bKazeText\b/ },
-    { label: "KazeTypography", pattern: /\bKazeTypography\b/ },
-    { label: "KazeFlex", pattern: /\bKazeFlex\b/ },
-    { label: "KazeBox", pattern: /\bKazeBox\b/ },
-    { label: "KazeHeading", pattern: /\bKazeHeading\b/ }
-  ];
-
-  return riskyPatterns
-    .filter(({ pattern }) => pattern.test(text))
-    .map(({ label }) => `Original AI response contained risky phrase: ${label}.`);
 }
 
 function repairScreenHeadings(
@@ -231,7 +209,8 @@ function repairUnsafeStateLabels(text: string): { text: string; repaired: string
 }
 
 function repairUnsafeQaAndFallbackText(
-  text: string
+  text: string,
+  dedupeChecklistLines = false
 ): { text: string; repaired: string[] } {
   const repaired = new Set<string>();
   const fallbackRule = [
@@ -242,45 +221,615 @@ function repairUnsafeQaAndFallbackText(
     "4. Do not use raw input/button/select if Kaze equivalents exist.",
     "5. Document the fallback clearly."
   ].join("\n");
-  const replacements: Array<{ pattern: RegExp; replacement: string; label: string }> = [
+  const unsafeLineRules: Array<{
+    patterns: RegExp[];
+    replacement: string;
+    label: string;
+  }> = [
     {
-      pattern: /Sidebar navigation routes to correct sections\.?/gi,
-      replacement: "Sidebar navigation is implemented or marked as TODO.",
-      label: "Sidebar navigation routes to correct sections"
+      patterns: [
+        /Sidebar links navigate/i,
+        /Sidebar navigation routes/i,
+        /routes to correct sections/i
+      ],
+      replacement: "- [ ] Sidebar navigation is implemented or marked as TODO.",
+      label: "unsafe sidebar navigation QA line"
     },
     {
-      pattern: /Avatar click opens profile\/account menu\.?/gi,
-      replacement: "Avatar interaction is implemented or marked as TODO.",
-      label: "Avatar click opens profile/account menu"
+      patterns: [/Avatar opens/i, /Avatar click opens/i],
+      replacement: "- [ ] Avatar interaction is implemented or marked as TODO.",
+      label: "unsafe avatar QA line"
     },
     {
-      pattern: /Voice button triggers expected input state\.?/gi,
-      replacement: "Voice button behaviour is implemented or marked as TODO.",
-      label: "Voice button triggers expected input state"
+      patterns: [/Microphone button triggers audio input/i, /triggers audio input/i],
+      replacement: "- [ ] Microphone button behaviour is implemented or marked as TODO.",
+      label: "unsafe microphone button QA line"
     },
     {
-      pattern: /Quick action buttons trigger appropriate flows\.?/gi,
-      replacement: "Quick action button behaviour is implemented or marked as TODO.",
-      label: "Quick action buttons trigger appropriate flows"
+      patterns: [
+        /Voice button toggles/i,
+        /recording states?/i,
+        /audio UI state/i,
+        /Voice button triggers expected audio UI/i,
+        /Voice button triggers expected input state/i
+      ],
+      replacement: "- [ ] Voice button behaviour is implemented or marked as TODO.",
+      label: "unsafe voice button QA line"
     },
     {
-      pattern: /use a standard accessible fallback until confirmed\.?/gi,
+      patterns: [
+        /opens and allows selection/i,
+        /displays options and updates on change/i,
+        /dropdown opens/i,
+        /updates on change/i
+      ],
+      replacement: "- [ ] Thinking selector behaviour is implemented or marked as TODO.",
+      label: "unsafe thinking selector QA line"
+    },
+    {
+      patterns: [
+        /Quick action buttons trigger/i,
+        /navigate to or trigger/i,
+        /trigger appropriate flows/i
+      ],
+      replacement: "- [ ] Quick action behaviour is implemented or marked as TODO.",
+      label: "unsafe quick action QA line"
+    },
+    {
+      patterns: [/White action button triggers submission/i, /triggers submission/i],
+      replacement: "- [ ] White action button behaviour is implemented or marked as TODO.",
+      label: "unsafe submission button QA line"
+    },
+    {
+      patterns: [/use a standard accessible fallback until confirmed/i],
       replacement: fallbackRule,
       label: "use a standard accessible fallback until confirmed"
     }
   ];
 
-  let repairedText = text;
-  replacements.forEach(({ pattern, replacement, label }) => {
-    if (pattern.test(repairedText)) {
-      repaired.add(label);
-      repairedText = repairedText.replace(pattern, replacement);
+  const repairedLines = text.split("\n").map((line) => {
+    const cleanedLine = removeBrokenTodoSuffixes(line);
+
+    for (const rule of unsafeLineRules) {
+      if (rule.patterns.some((pattern) => pattern.test(cleanedLine))) {
+        repaired.add(rule.label);
+        return preserveLineIndent(cleanedLine, rule.replacement);
+      }
     }
+
+    return cleanedLine;
   });
+
+  const repairedText = dedupeChecklistLines
+    ? dedupeChecklistItems(repairedLines, repaired).join("\n")
+    : repairedLines.join("\n");
 
   return {
     text: repairedText,
     repaired: [...repaired].sort()
+  };
+}
+
+function removeBrokenTodoSuffixes(line: string): string {
+  return line
+    .replace(/\s*or is marked as TODO\. or is marked as TODO\./gi, "")
+    .replace(/\s*or are marked as TODO\./gi, "")
+    .replace(/\s*or is marked as TODO\./gi, "");
+}
+
+function preserveLineIndent(originalLine: string, replacement: string): string {
+  const indent = originalLine.match(/^\s*/)?.[0] ?? "";
+  return `${indent}${replacement}`;
+}
+
+function dedupeChecklistItems(lines: string[], repaired: Set<string>): string[] {
+  const seenChecklistItems = new Set<string>();
+  const dedupedLines: string[] = [];
+
+  lines.forEach((line) => {
+    const checklistKey = getChecklistDeduplicationKey(line);
+    if (checklistKey) {
+      if (seenChecklistItems.has(checklistKey)) {
+        repaired.add("duplicate checklist lines");
+        return;
+      }
+
+      seenChecklistItems.add(checklistKey);
+    }
+
+    dedupedLines.push(line);
+  });
+
+  return dedupedLines;
+}
+
+function getChecklistDeduplicationKey(line: string): string | null {
+  const trimmed = line.trim();
+  if (!/^[-*]\s+(?:\[[ x]\]\s*)?/i.test(trimmed)) {
+    return null;
+  }
+
+  return trimmed
+    .replace(/^[-*]\s+(?:\[[ x]\]\s*)?/i, "")
+    .trim()
+    .toLowerCase();
+}
+
+function sanitizeParsedFiles(
+  files: Partial<Record<GeneratedFileName, string>>
+): Partial<Record<GeneratedFileName, string>> {
+  return {
+    ...files,
+    "pack-manifest.md": sanitizeManifestContent(files["pack-manifest.md"]),
+    "handoff.md": sanitizeHandoffContent(files["handoff.md"]),
+    "kaze-component-mapping.md": sanitizeKazeComponentMappingContent(
+      files["kaze-component-mapping.md"]
+    ),
+    "cline-implementation-prompt.md": sanitizeClinePrompt(
+      files["cline-implementation-prompt.md"]
+    ),
+    "qa-checklist.md": files["qa-checklist.md"]
+      ? repairUnsafeQaAndFallbackText(files["qa-checklist.md"], true).text
+      : undefined
+  };
+}
+
+function sanitizeManifestContent(manifest: string | undefined): string | undefined {
+  if (!manifest) {
+    return manifest;
+  }
+
+  const normalizedManifest = manifest
+    .replace(
+      /Exact spacing and sizing tokens are not provided in the design specs\.?/gi,
+      "Detailed layout measurements are not provided."
+    )
+    .replace(
+      /Animation behavior for the Thinking selector and quick action buttons is unconfirmed\.?/gi,
+      "Interaction behaviour for the Thinking selector and quick action buttons is unconfirmed."
+    );
+  let insertedNavigationUnknown = false;
+  const unsafeManifestPatterns = [
+    /\bKaze[A-Z][A-Za-z0-9]*\b/i,
+    /\b(?:Kaze|design|color|colour)?\s*tokens?\b/i,
+    /\bsizing tokens?\b/i,
+    /\bspacing and sizing tokens?\b/i,
+    /\bexact spacing\b/i,
+    /\bspacing\b/i,
+    /\bdesign specs?\b/i,
+    /\bcomponent (?:names?|verification)\b/i,
+    /\bimplementation (?:details?|instructions?|assumptions?)\b/i,
+    /\bCSS\b/i,
+    /\b\d+px\b/i,
+    /\bAPI endpoints?\b|\/api\/|https?:\/\//i,
+    /\bStorybook\b/i
+  ];
+  const routePattern = /\broute(?:s| names?| details?)?\b|\/[a-z0-9_-]+/i;
+
+  const cleanedManifest = normalizedManifest
+    .split("\n")
+    .map((line) => {
+      if (routePattern.test(line)) {
+        if (insertedNavigationUnknown) {
+          return "";
+        }
+
+        insertedNavigationUnknown = true;
+        return "- Navigation behaviour is not confirmed.";
+      }
+
+      if (unsafeManifestPatterns.some((pattern) => pattern.test(line))) {
+        return "";
+      }
+
+      return line;
+    })
+    .filter((line, index, lines) => {
+      if (line.trim() !== "") {
+        return true;
+      }
+
+      return index > 0 && lines[index - 1].trim() !== "";
+    })
+    .join("\n")
+    .trim();
+
+  return normalizeManifestUnknowns(cleanedManifest);
+}
+
+function normalizeManifestUnknowns(manifest: string): string {
+  const lines = manifest.split("\n");
+  const remainingLines: string[] = [];
+  const unknownLines: string[] = [];
+  let inUnknownsSection = false;
+
+  lines.forEach((line) => {
+    if (/^#{1,6}\s*Unknowns\s*\/\s*Needs Confirmation\s*$/i.test(line.trim())) {
+      inUnknownsSection = true;
+      return;
+    }
+
+    if (/^#{1,6}\s+/.test(line.trim())) {
+      inUnknownsSection = false;
+    }
+
+    if (isManifestUnknownLine(line)) {
+      unknownLines.push(normalizeManifestUnknownLine(line));
+      return;
+    }
+
+    if (!inUnknownsSection) {
+      remainingLines.push(line);
+    }
+  });
+
+  const uniqueUnknownLines = uniqueStrings(unknownLines);
+  if (uniqueUnknownLines.length === 0) {
+    return remainingLines.join("\n").trim();
+  }
+
+  return [
+    ...trimTrailingBlankLines(remainingLines),
+    "",
+    "## Unknowns / Needs Confirmation",
+    ...uniqueUnknownLines
+  ].join("\n").trim();
+}
+
+function isManifestUnknownLine(line: string): boolean {
+  const trimmed = line.trim();
+  return (
+    /^[-*]\s+/.test(trimmed) &&
+    /\b(?:not confirmed|unconfirmed|unknown|needs confirmation)\b/i.test(trimmed)
+  );
+}
+
+function normalizeManifestUnknownLine(line: string): string {
+  const content = line
+    .trim()
+    .replace(/^[-*]\s+/, "")
+    .replace(/^Unknowns?\s*\/?\s*needs confirmation:\s*/i, "")
+    .trim();
+
+  return `- ${content}`;
+}
+
+function trimTrailingBlankLines(lines: string[]): string[] {
+  const trimmedLines = [...lines];
+  while (trimmedLines.length > 0 && trimmedLines[trimmedLines.length - 1].trim() === "") {
+    trimmedLines.pop();
+  }
+
+  return trimmedLines;
+}
+
+function sanitizeHandoffContent(handoff: string | undefined): string | undefined {
+  if (!handoff) {
+    return handoff;
+  }
+
+  return handoff
+    .replace(
+      /Specific Font Awesome icons for the sidebar and quick actions\s*\([^)]*plus[^)]*microphone[^)]*image[^)]*pen[^)]*globe[^)]*\)\.?/gi,
+      "Specific Font Awesome icons should be verified against the project icon setup."
+    )
+    .replace(
+      /Select a mode from the dropdown selector\.?/gi,
+      "Interact with the visible `Thinking` selector. Exact options are unknown."
+    );
+}
+
+function sanitizeKazeComponentMappingContent(
+  mapping: string | undefined
+): string | undefined {
+  if (!mapping) {
+    return mapping;
+  }
+
+  return mapping
+    .split("\n")
+    .map((line) => {
+      if (!/Known standard icon/i.test(line)) {
+        return line;
+      }
+
+      if (/sidebar\s+nav\s+icons?/i.test(line)) {
+        return line.replace(
+          /Known standard icon/gi,
+          "Unknown / verify Font Awesome icon"
+        );
+      }
+
+      const iconDescription = inferFontAwesomeIconDescription(line);
+      return line.replace(
+        /Known standard icon/gi,
+        `Likely Font Awesome ${iconDescription}; verify project icon setup.`
+      );
+    })
+    .join("\n");
+}
+
+function inferFontAwesomeIconDescription(line: string): string {
+  if (/plus|attachment/i.test(line)) {
+    return "plus icon";
+  }
+
+  if (/microphone|voice/i.test(line)) {
+    return "microphone icon";
+  }
+
+  if (/image/i.test(line)) {
+    return "image icon";
+  }
+
+  if (/pen|edit|write/i.test(line)) {
+    return "pen/edit icon";
+  }
+
+  if (/globe|search|web/i.test(line)) {
+    return "globe icon";
+  }
+
+  return "icon";
+}
+
+function sanitizeClinePrompt(prompt: string | undefined): string | undefined {
+  if (!prompt) {
+    return prompt;
+  }
+
+  const sanitizedPrompt = prompt
+    .replace(
+      /Use KazeInput or similar text component for the greeting if supported, otherwise use raw HTML with verified typography styles\.?/gi,
+      "Use the existing project typography/heading pattern for the greeting. If Kaze has a confirmed typography component, use it; otherwise use the approved project text pattern."
+    )
+    .replace(
+      /Use KazeInput or similar for the sidebar if it(?:'|’)?s interactive, otherwise verify sidebar pattern\.?/gi,
+      "Use the existing project sidebar/navigation pattern if available. Do not use KazeInput for sidebar/navigation. If no approved pattern exists, document the fallback and keep raw HTML limited to non-interactive layout wrappers."
+    );
+
+  return ensureClineCriticalFirstStep(sanitizedPrompt);
+}
+
+function ensureClineCriticalFirstStep(prompt: string | undefined): string | undefined {
+  if (!prompt) {
+    return prompt;
+  }
+
+  if (hasRequiredCriticalFirstStep(prompt)) {
+    return prompt;
+  }
+
+  return [prompt.trim(), "", CRITICAL_FIRST_STEP_SECTION].join("\n").trim();
+}
+
+function hasRequiredCriticalFirstStep(prompt: string): boolean {
+  return [
+    "## Critical First Step",
+    "Before writing code:",
+    "Inspect actual project structure.",
+    "Inspect existing pages/screens that already use Kaze.",
+    "Inspect Kaze package exports.",
+    "Inspect Kaze Storybook/docs if available.",
+    "Confirm exact Kaze component names and props.",
+    "Do not use guessed Kaze components.",
+    "If a suggested Kaze component does not exist, use the closest approved Kaze/project pattern and report it."
+  ].every((requiredText) => prompt.includes(requiredText));
+}
+
+function validateFinalOutput(params: {
+  text: string;
+  files: Partial<Record<GeneratedFileName, string>>;
+  allowedFilenames: string[];
+  parsedFilenames: ParsedFilenameContext[];
+}): FinalValidationResult {
+  const warnings: string[] = [];
+  const failureIssues: string[] = [];
+  const reviewIssues: string[] = [];
+  const finalText = Object.values(params.files).filter(Boolean).join("\n\n") || params.text;
+
+  const addWarning = (message: string, issue = message) => {
+    warnings.push(message);
+    reviewIssues.push(issue);
+  };
+  const addFailure = (message: string, issue = message) => {
+    warnings.push(message);
+    failureIssues.push(issue);
+  };
+
+  const riskyFinalPatterns: Array<{
+    label: string;
+    pattern: RegExp;
+    failure?: boolean;
+  }> = [
+    { label: "Filename unavailable", pattern: /Filename unavailable/i, failure: true },
+    { label: "Chatgpt_default_Desktop.png", pattern: /Chatgpt_default_Desktop\.png/i },
+    { label: "Home_Default_Desktop.png", pattern: /Home_Default_Desktop\.png/i },
+    { label: "Default / Empty", pattern: /Default\s*\/\s*Empty/i },
+    { label: "Initial / Empty", pattern: /Initial\s*\/\s*Empty/i },
+    { label: "Empty no history", pattern: /Empty no history/i },
+    { label: "<details", pattern: /<details/i, failure: true },
+    { label: "reasoning", pattern: /\breasoning\b/i },
+    { label: "Thought for", pattern: /Thought for/i, failure: true },
+    { label: "analysis", pattern: /\banalysis\b/i, failure: true },
+    { label: "KazeSidebar", pattern: /\bKazeSidebar\b/ },
+    { label: "KazeAvatar", pattern: /\bKazeAvatar\b/ },
+    { label: "KazeCard", pattern: /\bKazeCard\b/ },
+    { label: "KazeIcon", pattern: /\bKazeIcon\b/ },
+    { label: "KazeLayout", pattern: /\bKazeLayout\b/ },
+    { label: "KazeText", pattern: /\bKazeText\b/ },
+    { label: "KazeTypography", pattern: /\bKazeTypography\b/ },
+    { label: "KazeFlex", pattern: /\bKazeFlex\b/ },
+    { label: "KazeBox", pattern: /\bKazeBox\b/ },
+    { label: "KazeHeading", pattern: /\bKazeHeading\b/ },
+    { label: "KazeGreeting", pattern: /\bKazeGreeting\b/ },
+    { label: "KazePromptBar", pattern: /\bKazePromptBar\b/ },
+    {
+      label: "Use KazeInput or similar text component for the greeting",
+      pattern: /Use KazeInput or similar text component for the greeting/i
+    },
+    {
+      label: "Use KazeInput or similar for the sidebar",
+      pattern: /Use KazeInput or similar for the sidebar/i
+    },
+    {
+      label: "opens and allows selection",
+      pattern: /opens and allows selection/i
+    },
+    {
+      label: "displays options and updates on change",
+      pattern: /displays options and updates on change/i
+    },
+    {
+      label: "toggles between idle and recording states",
+      pattern: /toggles between idle and recording states/i
+    },
+    {
+      label: "triggers audio input",
+      pattern: /triggers audio input/i
+    },
+    {
+      label: "triggers submission",
+      pattern: /triggers submission/i
+    },
+    {
+      label: "navigate to or trigger their respective flows",
+      pattern: /navigate to or trigger their respective flows/i
+    },
+    {
+      label: "trigger appropriate flows",
+      pattern: /trigger appropriate flows/i
+    },
+    {
+      label: "routes to correct sections",
+      pattern: /routes to correct sections/i
+    },
+    {
+      label: "Select a mode from the dropdown selector",
+      pattern: /Select a mode from the dropdown selector/i
+    },
+    {
+      label: "Known standard icon",
+      pattern: /Known standard icon/i
+    },
+    {
+      label: "spacing and sizing tokens",
+      pattern: /spacing and sizing tokens/i
+    },
+    {
+      label: "exact spacing",
+      pattern: /exact spacing/i
+    },
+    {
+      label: "route names",
+      pattern: /route names/i
+    },
+    {
+      label: "API endpoints",
+      pattern: /API endpoints/i
+    }
+  ];
+
+  riskyFinalPatterns.forEach(({ label, pattern, failure }) => {
+    if (!pattern.test(finalText)) {
+      return;
+    }
+
+    const message = `Generated output contains risky phrase after repair: ${label}.`;
+    if (failure) {
+      addFailure(message, `Output still contains blocked reasoning/filename content: ${label}.`);
+      return;
+    }
+
+    addWarning(message);
+  });
+
+  const hasExplicitEmptyFilenameState = params.parsedFilenames.some(
+    (entry) => entry.state?.toLowerCase() === "empty"
+  );
+  if (
+    !hasExplicitEmptyFilenameState &&
+    /^(?:#{1,6}|[-*])\s*Empty(?:\s|:|$)/im.test(finalText)
+  ) {
+    addWarning(
+      "Generated output includes an Empty state even though no uploaded filename state is Empty."
+    );
+  }
+
+  params.parsedFilenames.forEach((entry) => {
+    if (!entry.screenName) {
+      return;
+    }
+
+    const screenName = escapeRegExp(entry.screenName);
+    const invalidHeadingPatterns: Array<{ label: string; pattern: RegExp }> = [
+      {
+        label: `Screen: ${entry.screenName}`,
+        pattern: new RegExp(`^#{1,6}\\s*Screen:\\s*${screenName}\\s*$`, "im")
+      },
+      {
+        label: `Screen Name: ${entry.screenName}`,
+        pattern: new RegExp(`^#{1,6}\\s*Screen Name:\\s*${screenName}\\s*$`, "im")
+      }
+    ];
+
+    if (entry.state) {
+      const screenAndState = `${entry.screenName}_${entry.state}`;
+      invalidHeadingPatterns.push({
+        label: screenAndState,
+        pattern: new RegExp(
+          `^#{1,6}\\s*(?:(?:Screen|Screen Name):\\s*)?${escapeRegExp(screenAndState)}\\s*$`,
+          "im"
+        )
+      });
+    }
+
+    if (entry.state && entry.viewport) {
+      const fullParsedName = `${entry.screenName}_${entry.state}_${entry.viewport}`;
+      invalidHeadingPatterns.push({
+        label: fullParsedName,
+        pattern: new RegExp(
+          `^#{1,6}\\s*(?:(?:Screen|Screen Name):\\s*)?${escapeRegExp(fullParsedName)}\\s*$`,
+          "im"
+        )
+      });
+    }
+
+    invalidHeadingPatterns.forEach(({ label, pattern }) => {
+      if (pattern.test(finalText)) {
+        addWarning(`Generated output still contains invalid screen heading: ${label}.`);
+      }
+    });
+  });
+
+  const manifestWarnings = validateManifestCleanliness(params.files);
+  warnings.push(...manifestWarnings);
+  reviewIssues.push(...manifestWarnings);
+
+  const manifest = params.files["pack-manifest.md"];
+  if (manifest) {
+    params.allowedFilenames.forEach((filename) => {
+      if (!manifest.includes(filename)) {
+        const message = `pack-manifest.md is missing screenshot list entry: ${filename}.`;
+        addFailure(message, message);
+      }
+    });
+  }
+
+  const clineWarnings = validateClinePrompt(
+    params.files["cline-implementation-prompt.md"]
+  );
+  warnings.push(...clineWarnings);
+  reviewIssues.push(...clineWarnings);
+
+  const qaWarnings = validateQaChecklist(params.files["qa-checklist.md"]);
+  warnings.push(...qaWarnings);
+  reviewIssues.push(...qaWarnings);
+
+  return {
+    warnings: uniqueStrings(warnings),
+    failureIssues: uniqueStrings(failureIssues),
+    reviewIssues: uniqueStrings(reviewIssues)
   };
 }
 
@@ -296,14 +845,19 @@ function validateManifestCleanliness(
     { label: "Kaze component details", pattern: /\bKaze[A-Z][A-Za-z0-9]*\b/ },
     { label: "component verification", pattern: /component verification/i },
     { label: "confirmed Kaze components", pattern: /confirmed Kaze components?/i },
-    { label: "Kaze token details", pattern: /\bKaze tokens?\b|\btokens?\b/i },
+    { label: "token details", pattern: /\btokens?\b/i },
     { label: "color tokens", pattern: /color tokens?|colour tokens?/i },
-    { label: "spacing tokens", pattern: /spacing tokens?/i },
+    { label: "spacing and sizing tokens", pattern: /spacing and sizing tokens?/i },
+    { label: "sizing tokens", pattern: /sizing tokens?/i },
+    { label: "exact spacing", pattern: /exact spacing/i },
+    { label: "spacing details", pattern: /\bspacing\b/i },
+    { label: "design specs", pattern: /design specs?/i },
     { label: "component names", pattern: /component names?/i },
     { label: "implementation details", pattern: /implementation details/i },
     { label: "implementation instructions", pattern: /implementation instructions?/i },
-    { label: "API endpoint details", pattern: /API endpoint|\/api\/|http:\/\/|https:\/\//i },
-    { label: "route details", pattern: /route details?|routes?:\s|\/[a-z0-9_-]+/i },
+    { label: "API endpoint details", pattern: /API endpoints?|\/api\/|http:\/\/|https:\/\//i },
+    { label: "route details", pattern: /route names?|route details?|routes?:\s|\/[a-z0-9_-]+/i },
+    { label: "Storybook instructions", pattern: /Storybook/i },
     { label: "CSS values", pattern: /\bCSS\b|#[0-9a-f]{3,8}\b/i },
     { label: "exact pixel values", pattern: /\b\d+px\b/i }
   ];
@@ -314,6 +868,212 @@ function validateManifestCleanliness(
       ({ label }) =>
         `pack-manifest.md may include content that belongs outside the manifest: ${label}.`
     );
+}
+
+function validateClinePrompt(prompt: string | undefined): string[] {
+  if (!prompt) {
+    return [];
+  }
+
+  const requiredRules: Array<{ label: string; pattern: RegExp }> = [
+    { label: "Critical First Step section", pattern: /## Critical First Step/i },
+    { label: "Before writing code", pattern: /Before writing code:/i },
+    { label: "Inspect actual project structure.", pattern: /Inspect actual project structure\./ },
+    {
+      label: "Inspect existing pages/screens that already use Kaze",
+      pattern: /Inspect existing pages\/screens that already use Kaze/i
+    },
+    { label: "Inspect Kaze package exports", pattern: /Inspect Kaze package exports|package exports/i },
+    { label: "Inspect Kaze Storybook/docs if available", pattern: /Inspect Kaze Storybook\/docs if available/i },
+    { label: "Confirm exact Kaze component names and props", pattern: /Confirm exact Kaze component names and props|Verify exact Kaze components and props/i },
+    { label: "Do not use guessed Kaze components", pattern: /Do not use guessed Kaze components|Avoid guessed Kaze components/i },
+    {
+      label: "Report missing suggested Kaze components",
+      pattern: /If a suggested Kaze component does not exist, use the closest approved Kaze\/project pattern and report it/i
+    },
+    { label: "Do not invent routes", pattern: /Do not invent routes/i },
+    { label: "Do not invent APIs", pattern: /Do not invent APIs/i },
+    { label: "Do not invent dropdown values", pattern: /Do not invent dropdown values/i },
+    { label: "Do not invent permission rules", pattern: /Do not invent permission rules/i },
+    { label: "Use Kaze components where available", pattern: /Use Kaze components where available/i },
+    {
+      label: "Do not use raw controls if Kaze equivalents exist",
+      pattern: /Do not use raw input\/button\/select\/table\/modal\/form controls if Kaze equivalents exist|Do not use raw input\/button\/select/i
+    },
+    {
+      label: "Use raw HTML only for non-interactive layout wrappers",
+      pattern: /Use raw HTML only for non-interactive layout wrappers/i
+    },
+    {
+      label: "Do not use Ant Design directly if Kaze wraps it",
+      pattern: /Do not use Ant Design directly if Kaze wraps it/i
+    },
+    { label: "Mark unknown behaviour as TODO", pattern: /Mark unknown behaviour as TODO/i },
+    {
+      label: "Report unresolved unknowns and fallback choices",
+      pattern: /Report unresolved unknowns and fallback choices/i
+    },
+    {
+      label: "Fallback rule for unverified Kaze components",
+      pattern: /If a Kaze component is not verified:[\s\S]*First search existing project patterns[\s\S]*Document the fallback clearly/i
+    },
+    { label: "Run typecheck/build if available", pattern: /Run typecheck\/build if available|typecheck.*build/i }
+  ];
+
+  return requiredRules
+    .filter(({ pattern }) => !pattern.test(prompt))
+    .map(
+      ({ label }) =>
+        `cline-implementation-prompt.md is missing required verification rule: ${label}.`
+    );
+}
+
+function validateQaChecklist(checklist: string | undefined): string[] {
+  if (!checklist) {
+    return [];
+  }
+
+  const unsafePatterns: Array<{ label: string; pattern: RegExp }> = [
+    {
+      label: "Sidebar navigation routes to correct sections",
+      pattern: /Sidebar navigation routes to correct sections\.?/i
+    },
+    {
+      label: "Sidebar links navigate correctly",
+      pattern: /Sidebar links navigate correctly\.?/i
+    },
+    {
+      label: "Avatar click opens profile/account menu",
+      pattern: /Avatar click opens profile\/account menu\.?/i
+    },
+    {
+      label: "Avatar opens profile menu",
+      pattern: /Avatar opens profile menu\.?/i
+    },
+    {
+      label: "Voice button triggers expected audio/input state",
+      pattern: /Voice button triggers expected (?:audio|input) state\.?/i
+    },
+    {
+      label: "Voice button triggers expected audio UI",
+      pattern: /Voice button triggers expected audio UI\.?/i
+    },
+    {
+      label: "Voice button toggles between idle and recording states",
+      pattern: /Voice button toggles between idle and recording states\.?/i
+    },
+    {
+      label: "triggers audio input",
+      pattern: /triggers audio input/i
+    },
+    {
+      label: "triggers submission",
+      pattern: /triggers submission/i
+    },
+    {
+      label: "Thinking dropdown opens and allows selection",
+      pattern: /Thinking dropdown opens and allows selection\.?/i
+    },
+    {
+      label: "Thinking selector displays options and updates on change",
+      pattern: /Thinking selector displays options and updates on change\.?/i
+    },
+    {
+      label: '"Thinking" selector opens and allows selection',
+      pattern: /"?Thinking"? selector opens and allows selection\.?/i
+    },
+    {
+      label: "opens and allows selection",
+      pattern: /opens and allows selection/i
+    },
+    {
+      label: "Quick action buttons trigger appropriate flows",
+      pattern: /Quick action buttons trigger appropriate flows\.?/i
+    },
+    {
+      label: "Quick action buttons navigate to or trigger their respective flows",
+      pattern: /Quick action buttons navigate to or trigger their respective flows\.?/i
+    },
+    {
+      label: "navigate to or trigger their respective flows",
+      pattern: /navigate to or trigger their respective flows/i
+    },
+    {
+      label: "displays options and updates on change",
+      pattern: /displays options and updates on change/i
+    },
+    {
+      label: "toggles between idle and recording states",
+      pattern: /toggles between idle and recording states/i
+    }
+  ];
+
+  return unsafePatterns
+    .filter(({ pattern }) => pattern.test(checklist))
+    .map(({ label }) => `qa-checklist.md assumes unconfirmed behaviour: ${label}.`);
+}
+
+function computeQuality(params: {
+  warnings: string[];
+  failureIssues: string[];
+  reviewIssues: string[];
+}): GenerationQuality {
+  const failureIssues = uniqueStrings(params.failureIssues);
+  const reviewIssues = uniqueStrings([...params.reviewIssues, ...params.warnings]);
+
+  if (failureIssues.length > 0) {
+    return {
+      status: "failed",
+      label: "Failed",
+      score: 0,
+      issues: uniqueStrings([...failureIssues, ...reviewIssues])
+    };
+  }
+
+  if (reviewIssues.length > 0) {
+    return {
+      status: "needs_review",
+      label: "Needs Review",
+      score: 7,
+      issues: reviewIssues
+    };
+  }
+
+  return {
+    status: "ready",
+    label: "10/10 Ready",
+    score: 10,
+    issues: []
+  };
+}
+
+export function applyGenerationWarningsToQuality(
+  quality: GenerationQuality,
+  warnings: string[]
+): GenerationQuality {
+  const issues = uniqueStrings([...quality.issues, ...warnings]);
+
+  if (quality.status === "failed") {
+    return {
+      ...quality,
+      issues
+    };
+  }
+
+  if (warnings.length > 0) {
+    return {
+      status: "needs_review",
+      label: "Needs Review",
+      score: Math.min(quality.score, 7),
+      issues
+    };
+  }
+
+  return quality;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)].filter(Boolean);
 }
 
 function replaceUnconfirmedKazeComponents(

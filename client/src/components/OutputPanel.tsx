@@ -36,6 +36,7 @@ export function OutputPanel({
       files={response.files}
       rawResponse={response.rawResponse}
       warnings={response.warnings}
+      quality={response.quality}
       projectName={projectName}
       onRegenerate={onRegenerate}
       isLoading={isLoading}

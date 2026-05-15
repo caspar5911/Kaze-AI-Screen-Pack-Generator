@@ -11,7 +11,10 @@ import {
   buildPackInputMarkdown,
   loadKazeComponentCatalog
 } from "../services/promptBuilder.js";
-import { parseAiResponse } from "../services/responseParser.js";
+import {
+  applyGenerationWarningsToQuality,
+  parseAiResponse
+} from "../services/responseParser.js";
 import { isAllowedImageFilename } from "../utils/filenameParser.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -104,11 +107,14 @@ generatePackRouter.post(
           viewport: entry.parsed.viewport
         }))
       });
+      const warnings = [...new Set([...fileMap.warnings, ...parsed.warnings])];
+      const quality = applyGenerationWarningsToQuality(parsed.quality, warnings);
 
       response.json({
         files: parsed.files,
-        warnings: [...fileMap.warnings, ...parsed.warnings],
-        rawResponse: parsed.rawResponse
+        warnings,
+        rawResponse: parsed.rawResponse,
+        quality
       });
     } catch (error) {
       next(error);
