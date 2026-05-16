@@ -1,9 +1,6 @@
 import express from "express";
-import fs from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import multer from "multer";
 import { callAiEndpoint } from "../services/aiClient.js";
 import {
   AI_ASSIST_SYSTEM_PROMPT,
@@ -11,12 +8,13 @@ import {
   parseAiAssistResponse,
   type AiAssistTargetField,
 } from "../services/aiAssist.js";
-import { isAllowedImageFilename } from "../utils/filenameParser.js";
 import { createRequestLogScope, quoteLogValue } from "../utils/logger.js";
 import {
   cleanupUploadedFiles,
+  createImageUploadMiddleware,
   getOptionalString,
   getRequiredString,
+  getRequiredUrlString,
 } from "../utils/requestHelpers.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -30,37 +28,7 @@ const targetFields = new Set<AiAssistTargetField>([
   "additionalNotes",
   "all",
 ]);
-
-const storage = multer.diskStorage({
-  destination: async (_request, _file, callback) => {
-    try {
-      await fs.mkdir(uploadDir, { recursive: true });
-      callback(null, uploadDir);
-    } catch (error) {
-      callback(error as Error, uploadDir);
-    }
-  },
-  filename: (_request, file, callback) => {
-    const safeBase = path.basename(file.originalname).replace(/[^\w.-]+/g, "_");
-    callback(null, `${Date.now()}-${randomUUID()}-${safeBase}`);
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: 15 * 1024 * 1024,
-    files: 20,
-  },
-  fileFilter: (_request, file, callback) => {
-    if (!isAllowedImageFilename(file.originalname)) {
-      callback(new Error(`Unsupported screenshot type: ${file.originalname}`));
-      return;
-    }
-
-    callback(null, true);
-  },
-});
+const upload = createImageUploadMiddleware(uploadDir);
 
 export const aiAssistRouter = express.Router();
 
@@ -139,21 +107,16 @@ aiAssistRouter.post(
 );
 
 function validateAiAssistFields(body: Record<string, unknown>) {
-  const aiEndpointUrl = getRequiredString(
+  const aiEndpointUrl = getRequiredUrlString(
     body.aiEndpointUrl,
     "AI endpoint URL",
+    "AI endpoint URL must be a valid URL.",
   );
   const modelName = getRequiredString(body.modelName, "Model name");
   const targetField = getRequiredString(
     body.targetField,
     "AI assist target field",
   );
-
-  try {
-    new URL(aiEndpointUrl);
-  } catch {
-    throw new Error("AI endpoint URL must be a valid URL.");
-  }
 
   if (!targetFields.has(targetField as AiAssistTargetField)) {
     throw new Error("AI assist target field is invalid.");

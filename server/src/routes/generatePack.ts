@@ -1,9 +1,6 @@
 import express from "express";
-import fs from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import multer from "multer";
 import type { AiEndpointMode } from "../services/aiClient.js";
 import { callAiEndpoint } from "../services/aiClient.js";
 import { buildFileMap } from "../services/fileMap.js";
@@ -22,7 +19,6 @@ import {
   parseHandoffMappingResponse,
   parseManifestResponse,
 } from "../services/responseParser.js";
-import { isAllowedImageFilename } from "../utils/filenameParser.js";
 import {
   createRequestLogScope,
   formatMs,
@@ -30,8 +26,10 @@ import {
 } from "../utils/logger.js";
 import {
   cleanupUploadedFiles,
+  createImageUploadMiddleware,
   getOptionalString,
   getRequiredString,
+  getRequiredUrlString,
 } from "../utils/requestHelpers.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,37 +37,7 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..", "..", "..");
 const uploadDir = path.resolve(repoRoot, "server", "tmp", "uploads");
 const defaultAiRequestTimeoutMs = 180_000;
-
-const storage = multer.diskStorage({
-  destination: async (_request, _file, callback) => {
-    try {
-      await fs.mkdir(uploadDir, { recursive: true });
-      callback(null, uploadDir);
-    } catch (error) {
-      callback(error as Error, uploadDir);
-    }
-  },
-  filename: (_request, file, callback) => {
-    const safeBase = path.basename(file.originalname).replace(/[^\w.-]+/g, "_");
-    callback(null, `${Date.now()}-${randomUUID()}-${safeBase}`);
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: 15 * 1024 * 1024,
-    files: 20,
-  },
-  fileFilter: (_request, file, callback) => {
-    if (!isAllowedImageFilename(file.originalname)) {
-      callback(new Error(`Unsupported screenshot type: ${file.originalname}`));
-      return;
-    }
-
-    callback(null, true);
-  },
-});
+const upload = createImageUploadMiddleware(uploadDir);
 
 export const generatePackRouter = express.Router();
 
@@ -356,17 +324,12 @@ function validateFields(body: Record<string, unknown>) {
     body.shortDescription,
     "Short description",
   );
-  const aiEndpointUrl = getRequiredString(
+  const aiEndpointUrl = getRequiredUrlString(
     body.aiEndpointUrl,
     "AI endpoint URL",
+    "AI endpoint URL must be a valid URL.",
   );
   const modelName = getRequiredString(body.modelName, "Model name");
-
-  try {
-    new URL(aiEndpointUrl);
-  } catch {
-    throw new Error("AI endpoint URL must be a valid URL.");
-  }
 
   return {
     projectName,
