@@ -88,7 +88,7 @@ The editable Kaze component/export catalog is:
 
 ```text
 config/kaze-component-catalog.md
-config/kaze-component-catalog.json
+config/kaze-component-catalog.local.json
 ```
 
 ## Basic Workflow
@@ -148,7 +148,8 @@ kaze-screen-pack-generator/
 │  │  └─ index.ts
 │  └─ package.json
 ├─ config/
-│  └─ kaze-component-catalog.md
+│  ├─ kaze-component-catalog.md
+│  └─ kaze-component-catalog.local.json
 ├─ docs/
 └─ package.json
 ```

@@ -252,12 +252,12 @@ The Kaze package source of truth lives in:
 
 ```text
 config/kaze-component-catalog.md
-config/kaze-component-catalog.json
+config/kaze-component-catalog.local.json
 ```
 
-`config/kaze-component-catalog.md` is human-readable and prompt-facing.
+`config/kaze-component-catalog.md` is human-readable maintainer documentation.
 
-`config/kaze-component-catalog.json` is machine-readable and used by `server/src/services/kazeCatalog.ts`.
+`config/kaze-component-catalog.local.json` is the committed local fallback for the machine-readable catalog. Normal generation uses the remote/catalog cache/local loading order from `server/src/services/kazeCatalogFetcher.ts`.
 
 `kazeCatalog.ts` provides:
 
@@ -395,5 +395,5 @@ The generated `validate-pack.mjs` lets the exported pack validate itself before 
 - Change filename parsing: `server/src/utils/filenameParser.ts` and client filename parser.
 - Change File Map behavior: `server/src/services/fileMap.ts`.
 - Change sanitizer, validation, quality scoring, or deterministic gallery mapping: `server/src/services/responseParser.ts`.
-- Change Kaze export truth: `config/kaze-component-catalog.md`, `config/kaze-component-catalog.json`, and `server/src/services/kazeCatalog.ts`.
+- Change Kaze export truth: the remote catalog JSON source, `config/kaze-component-catalog.local.json`, and `server/src/services/kazeCatalog.ts`.
 - Change ZIP contents or ZIP validation: `client/src/utils/downloadZip.ts`.

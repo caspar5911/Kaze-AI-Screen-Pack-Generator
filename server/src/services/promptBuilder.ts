@@ -1,7 +1,5 @@
-import fs from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { FileMapEntry } from "./fileMap.js";
+import type { KazeCatalog } from "./kazeCatalog.js";
 import {
   getComponentGalleryExports,
   getConfirmedKazeExports,
@@ -12,19 +10,6 @@ import {
   getVisualKazeExports,
 } from "./kazeCatalog.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const repoRoot = path.resolve(__dirname, "..", "..", "..");
-const catalogPath = path.resolve(
-  repoRoot,
-  "config",
-  "kaze-component-catalog.md",
-);
-const catalogJsonPath = path.resolve(
-  repoRoot,
-  "config",
-  "kaze-component-catalog.json",
-);
 const AI_ASSISTANT_HOME_VISIBLE_ACTIONS = [
   "Type a prompt in the input field.",
   "Add attachments using the plus icon.",
@@ -72,14 +57,23 @@ export interface PackInputFields {
   additionalNotes: string;
 }
 
-export async function loadKazeComponentCatalog(): Promise<string> {
-  return fs.readFile(catalogPath, "utf8");
+export interface KazeCatalogSourceMetadata {
+  packageName?: string;
+  kazeVersion?: string;
+  catalogVersion?: string;
+  schemaVersion?: string;
+  source: "remote" | "cache" | "local";
+  sourceDetail: string;
 }
 
-export async function loadCompactCatalogJson(): Promise<string> {
-  await fs.access(catalogJsonPath);
-  const catalog = getKazeCatalog();
+export async function loadCompactCatalogJson(
+  catalog: KazeCatalog = getKazeCatalog(),
+): Promise<string> {
   return JSON.stringify({
+    packageName: catalog.packageName,
+    kazeVersion: catalog.kazeVersion,
+    catalogVersion: catalog.catalogVersion,
+    schemaVersion: catalog.schemaVersion,
     confirmedExports: catalog.confirmedExports,
     exportGroups: catalog.exportGroups,
     componentDetectionRules: catalog.componentDetectionRules,
@@ -142,6 +136,7 @@ export function buildPackInputMarkdown(
 export function buildLocalPackManifestMarkdown(
   fields: PackInputFields,
   fileMapEntries: FileMapEntry[],
+  catalogSource?: KazeCatalogSourceMetadata,
 ): string {
   const groupedEntries = new Map<string, FileMapEntry[]>();
 
@@ -196,6 +191,18 @@ export function buildLocalPackManifestMarkdown(
     "## Design Source",
     fields.designSource,
     "",
+    ...(catalogSource
+      ? [
+          "## Kaze Catalog Source",
+          `- Package: \`${catalogSource.packageName ?? "@pcs-security/kaze-ui-library"}\``,
+          `- Kaze version: \`${catalogSource.kazeVersion ?? "unknown"}\``,
+          `- Catalog version: \`${catalogSource.catalogVersion ?? "unknown"}\``,
+          `- Catalog schema version: \`${catalogSource.schemaVersion ?? "unknown"}\``,
+          `- Catalog source: \`${catalogSource.source}\``,
+          `- Catalog source detail: ${formatCatalogSourceDetail(catalogSource)}`,
+          "",
+        ]
+      : []),
     "## Pack Contents",
     ...PACK_CONTENT_FILES.map((filename) => `- \`${filename}\``),
     ...fileMapEntries.map((entry) => `- \`screenshots/${entry.filename}\``),
@@ -208,6 +215,16 @@ export function buildLocalPackManifestMarkdown(
       (unknown) => `- ${unknown}`,
     ),
   ].join("\n");
+}
+
+function formatCatalogSourceDetail(
+  catalogSource: KazeCatalogSourceMetadata,
+): string {
+  if (catalogSource.source === "remote") {
+    return "internal approved catalog endpoint";
+  }
+
+  return `\`${catalogSource.sourceDetail}\``;
 }
 
 function buildCompactPackContext(packInputMarkdown: string): string {
@@ -315,9 +332,14 @@ Generate only:
 Input: compact pack context, sanitized manifest, File Map, screenshots.
 
 Kaze export rules:
+- Package: ${catalog.packageName ?? "@pcs-security/kaze-ui-library"}
+- Kaze version: ${catalog.kazeVersion ?? "unknown"}
+- Catalog version: ${catalog.catalogVersion ?? "unknown"}
 - Allowed exact exports: ${confirmedExports}
 - Forbidden fake names: ${forbiddenFakeNames}
 - Unconfirmed patterns: ${unconfirmedPatterns}
+- Use only exports listed in the provided Kaze catalog JSON.
+- Do not use catalog entries marked pending or aiReady=false.
 - Use componentDetectionRules, patternMappings, and mandatoryMappingRules from the catalog as source of truth.
 - List visible UI elements and generic visual roles first.
 - Do not invent Kaze component names.

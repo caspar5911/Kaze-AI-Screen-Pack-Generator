@@ -15,6 +15,7 @@ import {
   buildPackInputMarkdown,
   loadCompactCatalogJson,
 } from "../services/promptBuilder.js";
+import { loadKazeCatalog } from "../services/kazeCatalogFetcher.js";
 import {
   applyGenerationWarningsToQuality,
   parseAllGeneratedFiles,
@@ -88,12 +89,14 @@ generatePackRouter.post(
           mimetype: file.mimetype,
         })),
       );
+      const catalogLoad = await loadKazeCatalog();
+      logCatalogWarnings(catalogLoad.warnings);
+      const compactCatalog = await loadCompactCatalogJson(catalogLoad.catalog);
       const packInputMarkdown = buildPackInputMarkdown(
         fields,
         fileMap.entries,
         fileMap.text,
       );
-      const compactCatalog = await loadCompactCatalogJson();
       const parsedFilenames = fileMap.entries.map((entry) => ({
         filename: entry.filename,
         screenName: entry.parsed.screenName,
@@ -110,6 +113,14 @@ generatePackRouter.post(
       const localManifestMarkdown = buildLocalPackManifestMarkdown(
         fields,
         fileMap.entries,
+        {
+          packageName: catalogLoad.catalog.packageName,
+          kazeVersion: catalogLoad.catalog.kazeVersion,
+          catalogVersion: catalogLoad.catalog.catalogVersion,
+          schemaVersion: catalogLoad.catalog.schemaVersion,
+          source: catalogLoad.source,
+          sourceDetail: catalogLoad.sourceDetail,
+        },
       );
       const manifestRawResponse = [
         "--- File: pack-manifest.md ---",
@@ -240,6 +251,18 @@ generatePackRouter.post(
           endpointMode: stage2EndpointMode,
           modelName: fields.modelName,
         },
+        kazeCatalog: {
+          source: catalogLoad.source,
+          sourceDetail:
+            catalogLoad.source === "remote"
+              ? "internal approved catalog endpoint"
+              : catalogLoad.sourceDetail,
+          packageName: catalogLoad.catalog.packageName,
+          kazeVersion: catalogLoad.catalog.kazeVersion,
+          catalogVersion: catalogLoad.catalog.catalogVersion,
+          schemaVersion: catalogLoad.catalog.schemaVersion,
+          warnings: catalogLoad.warnings,
+        },
       };
 
       if (quality.status === "failed") {
@@ -324,6 +347,12 @@ function getAiRequestTimeoutMs(): number {
   }
 
   return defaultAiRequestTimeoutMs;
+}
+
+function logCatalogWarnings(warnings: string[]): void {
+  warnings.forEach((warning) => {
+    console.warn(`[kazeCatalog] ${warning}`);
+  });
 }
 
 async function cleanupFiles(files: Express.Multer.File[]): Promise<void> {

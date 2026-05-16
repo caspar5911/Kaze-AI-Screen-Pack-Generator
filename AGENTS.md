@@ -59,7 +59,7 @@ Do not generate fake prefixed names such as:
 - `KazeAvatar`
 - `KazeTypography`
 
-Use `Exact Kaze Export` terminology in generated mapping tables. The source of truth is `config/kaze-component-catalog.md` plus `config/kaze-component-catalog.json`.
+Use `Exact Kaze Export` terminology in generated mapping tables. The runtime source of truth is the loaded Kaze catalog JSON, with `config/kaze-component-catalog.local.json` as the committed local fallback.
 
 Sidebar/navigation rail, layout containers, prompt bar wrappers, icon wrappers, and card/panel patterns remain `Unknown / verify from Kaze` unless actual project usage confirms an approved pattern.
 
@@ -82,7 +82,7 @@ Backend responsibilities:
 - Parse filenames into ScreenName, State, Viewport.
 - Build File Map.
 - Build `pack-input.md` internally.
-- Load `config/kaze-component-catalog.md`.
+- Load the Kaze catalog through the remote/cache/local JSON loader.
 - Build strict staged AI prompts.
 - Send prompts and images to the configured AI endpoint.
 - Parse model responses into the five output files.
@@ -101,7 +101,7 @@ Backend responsibilities:
 7. Backend reads original filenames from Multer metadata.
 8. Backend builds File Map in upload order.
 9. Backend generates internal `pack-input.md`.
-10. Backend loads `config/kaze-component-catalog.md`.
+10. Backend loads the Kaze catalog through the remote/cache/local JSON loader.
 11. Backend runs the strict 3-stage generation pipeline.
 12. Stage 1 locally generates `pack-manifest.md` from form fields, File Map, and parsed filenames.
 13. Stage 2 uses the sanitized manifest and screenshots to generate `handoff.md` and `kaze-component-mapping.md`.
@@ -118,8 +118,8 @@ Root:
 - `package.json`: workspace scripts.
 - `README.md`: human project overview.
 - `AGENTS.md`: this AI coding agent guide.
-- `config/kaze-component-catalog.md`: confirmed Kaze exports and unconfirmed patterns.
-- `config/kaze-component-catalog.json`: machine-readable package exports, pattern mappings, forbidden fake names, and deterministic repairs.
+- `config/kaze-component-catalog.md`: human-readable catalog documentation.
+- `config/kaze-component-catalog.local.json`: committed local fallback catalog with package exports, pattern mappings, forbidden fake names, and deterministic repairs.
 
 Client:
 
@@ -360,7 +360,7 @@ Filename warnings do not block generation.
 The source of truth is:
 
 ```text
-config/kaze-component-catalog.md
+config/kaze-component-catalog.local.json
 ```
 
 Allowed exact Kaze exports are only those listed under Confirmed Exports in the catalog.
@@ -406,7 +406,7 @@ For sidebar, layout, card, icon wrapper, or prompt bar, use `Unknown / verify fr
 The prompt builder must:
 
 - Include generated `pack-input.md`.
-- Include `config/kaze-component-catalog.md`.
+- Include compact JSON from the loaded Kaze catalog.
 - Include File Map.
 - Include filename parsing rules.
 - Include strict Kaze export rules.

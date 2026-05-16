@@ -2,6 +2,7 @@ import express, { Router } from "express";
 import type { Request, Response } from "express";
 import { resolveUnknowns } from "../services/resolveUnknowns.js";
 import { extractUnknownCells } from "../services/responseParser.js";
+import { loadKazeCatalog } from "../services/kazeCatalogFetcher.js";
 
 export const resolveUnknownsRouter = Router();
 resolveUnknownsRouter.use(express.json({ limit: "50mb" }));
@@ -45,6 +46,11 @@ resolveUnknownsRouter.post(
         isBase64: true,
       }));
 
+      const catalogLoad = await loadKazeCatalog();
+      catalogLoad.warnings.forEach((warning) =>
+        console.warn(`[kazeCatalog] ${warning}`),
+      );
+
       const result = await resolveUnknowns({
         unknownCells,
         aiEndpointUrl,
@@ -59,6 +65,13 @@ resolveUnknownsRouter.post(
         resolved: result.resolved,
         failed: result.failed,
         rawResponse: result.rawResponse,
+        catalog: {
+          source: catalogLoad.source,
+          sourceDetail:
+            catalogLoad.source === "remote"
+              ? "internal approved catalog endpoint"
+              : catalogLoad.sourceDetail,
+        },
       });
     } catch (error) {
       console.error("resolve-unknowns error:", error);

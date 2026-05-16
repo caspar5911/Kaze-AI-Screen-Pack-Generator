@@ -5,6 +5,7 @@ import {
   parseAllGeneratedFiles,
 } from "../services/responseParser.js";
 import { loadCompactCatalogJson } from "../services/promptBuilder.js";
+import { loadKazeCatalog } from "../services/kazeCatalogFetcher.js";
 
 export const validatePackRouter = Router();
 validatePackRouter.use(express.json({ limit: "10mb" }));
@@ -29,7 +30,8 @@ validatePackRouter.post(
         return;
       }
 
-      const compactCatalog = await loadCompactCatalogJson();
+      const catalogLoad = await loadKazeCatalog();
+      const compactCatalog = await loadCompactCatalogJson(catalogLoad.catalog);
 
       const result = parseAllGeneratedFiles({
         files,
@@ -38,6 +40,9 @@ validatePackRouter.post(
         kazeComponentCatalog: compactCatalog,
         parsedFilenames: parsedFilenames ?? [],
       });
+      catalogLoad.warnings.forEach((warning) =>
+        console.warn(`[kazeCatalog] ${warning}`),
+      );
 
       res.json({
         warnings: result.warnings,
@@ -45,6 +50,16 @@ validatePackRouter.post(
           result.quality,
           result.warnings,
         ),
+        meta: {
+          kazeCatalog: {
+            source: catalogLoad.source,
+            sourceDetail:
+              catalogLoad.source === "remote"
+                ? "internal approved catalog endpoint"
+                : catalogLoad.sourceDetail,
+            warnings: catalogLoad.warnings,
+          },
+        },
       });
     } catch (error) {
       console.error("validate-pack error:", error);

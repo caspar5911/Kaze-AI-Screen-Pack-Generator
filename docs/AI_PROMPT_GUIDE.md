@@ -126,7 +126,7 @@ When modifying prompts:
 
 1. Keep prompts compact and stage-specific
 2. Prefer sanitizer/validator rules over prompt text for fixing output issues
-3. Update `config/kaze-component-catalog.json` for component changes
+3. Update the remote catalog JSON and `config/kaze-component-catalog.local.json` for component changes
 4. Update this doc when changing prompt contracts
 5. Test with `HomeGreeting_Default_Desktop.png` scenario
 6. Run `npm run test:run` and `npm run build` before committing

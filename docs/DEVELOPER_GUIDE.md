@@ -50,7 +50,7 @@ Main entry points:
 - `services/promptBuilder.ts`: Builds `pack-input.md` and AI prompt.
 - `services/aiClient.ts`: Calls Ollama or OpenAI-compatible endpoint.
 - `services/aiAssist.ts`: Builds strict AI assist prompts and parses JSON responses.
-- `services/kazeCatalog.ts`: Loads `config/kaze-component-catalog.json` and centralizes confirmed exports, fake-name repairs, role-to-export mapping, and cross-file Kaze validation.
+- `services/kazeCatalog.ts`: Uses the loaded Kaze catalog, with `config/kaze-component-catalog.local.json` as the legacy local fallback, and centralizes confirmed exports, fake-name repairs, role-to-export mapping, and cross-file Kaze validation.
 - `services/responseParser.ts`: Parses, sanitizes, validates, and scores AI output.
 - `services/modelDiscovery.ts`: Lists available models for supported endpoint styles.
 - `utils/filenameParser.ts`: Screenshot filename parsing and image extension checks.
@@ -220,7 +220,7 @@ Source files:
 
 ```text
 config/kaze-component-catalog.md
-config/kaze-component-catalog.json
+config/kaze-component-catalog.local.json
 ```
 
 The Markdown catalog is injected into model prompts. The JSON catalog is for deterministic sanitizer and validator logic, including:
@@ -243,7 +243,7 @@ Prompt construction uses the 3-stage generation pipeline in `promptBuilder.ts`:
 Prompts include:
 
 - Compact pack context from generated `pack-input.md`
-- Compact catalog JSON from `config/kaze-component-catalog.json`
+- Compact catalog JSON from the loaded Kaze catalog, falling back to `config/kaze-component-catalog.local.json`
 - File Map
 - Strict output and safety rules
 
@@ -390,7 +390,7 @@ Update confirmed exports here:
 
 ```text
 config/kaze-component-catalog.md
-config/kaze-component-catalog.json
+config/kaze-component-catalog.local.json
 ```
 
 Do not add guessed exports. Only add a Kaze export after verifying it in `@pcs-security/kaze-ui-library`, real project usage, Storybook, or internal docs. Sidebar/navigation rail remains `Unknown / verify from Kaze` unless an approved project pattern exists.

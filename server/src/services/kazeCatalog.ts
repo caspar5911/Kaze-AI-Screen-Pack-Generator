@@ -8,10 +8,16 @@ const repoRoot = path.resolve(__dirname, "..", "..", "..");
 const catalogJsonPath = path.resolve(
   repoRoot,
   "config",
-  "kaze-component-catalog.json",
+  "kaze-component-catalog.local.json",
 );
 
 export interface KazeCatalog {
+  schemaVersion?: string;
+  packageName?: string;
+  kazeVersion?: string;
+  catalogVersion?: string;
+  catalogStatus?: string;
+  aiReady?: boolean;
   confirmedExports: string[];
   exportGroups?: {
     visualComponents?: string[];
@@ -33,6 +39,13 @@ export interface KazeCatalog {
   wrongNameRepairs?: Record<string, string>;
   validatorRules?: Array<Record<string, unknown>>;
   automaticFailConditions?: string[];
+  exportMetadata?: Record<
+    string,
+    {
+      catalogStatus?: string;
+      aiReady?: boolean;
+    }
+  >;
 }
 
 export const VALID_EXPORTS_THAT_MUST_NOT_BE_FORBIDDEN = [
@@ -53,12 +66,18 @@ const PRIMARY_FAKE_NAMES = [
 
 let cachedCatalog: KazeCatalog | null = null;
 
+export function setKazeCatalog(catalog: KazeCatalog): void {
+  cachedCatalog = catalog;
+}
+
 export function getKazeCatalog(): KazeCatalog {
   if (cachedCatalog) {
     return cachedCatalog;
   }
 
-  const catalog = JSON.parse(fs.readFileSync(catalogJsonPath, "utf8")) as KazeCatalog;
+  const catalog = JSON.parse(
+    fs.readFileSync(catalogJsonPath, "utf8").replace(/^\uFEFF/, ""),
+  ) as KazeCatalog;
   cachedCatalog = catalog;
   return catalog;
 }

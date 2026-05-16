@@ -59,7 +59,7 @@ Cause:
 
 Fix:
 
-- Update `config/kaze-component-catalog.md` and `config/kaze-component-catalog.json` only if the export is truly verified.
+- Update the remote catalog JSON and `config/kaze-component-catalog.local.json` only if the export is truly verified.
 - Keep unconfirmed patterns as `Unknown / verify from Kaze`.
 - Regenerate.
 
