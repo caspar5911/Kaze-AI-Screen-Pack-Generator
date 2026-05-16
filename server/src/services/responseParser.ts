@@ -112,6 +112,14 @@ const CORE_KAZE_EXPORTS_THAT_MUST_NOT_BE_FORBIDDEN =
 
 const FAKE_KAZE_PREFIXED_EXPORT_WARNING =
   "Do NOT use fake Kaze-prefixed names such as `KazeButton`, `KazeInput`, `KazeSelect`, `KazeAvatar`, or `KazeTypography`.";
+const TOKEN_BASED_VISUAL_RULE =
+  "Follow Kaze/project tokens for colors, borders, spacing, and shadows. Do not hardcode exact colors unless the project token confirms them.";
+const STRICT_ICON_HANDOFF_RULE =
+  "Icons use the existing project icon pattern if available; otherwise use inline SVG fallback. Do not assume or install any icon library. There is no confirmed Kaze `Icon` export.";
+const ABSOLUTE_WINDOWS_PATH_PATTERN = /[A-Za-z]:[\\/][^`\n]+/g;
+const HEX_COLOR_PATTERN = /#[0-9A-Fa-f]{3,8}\b/g;
+const WEAK_HANDOFF_ICON_WORDING_PATTERN =
+  /Use project icon pattern or inline SVG fallback for icons;?\s*no separate [`"]?Icon[`"]? export\.?|Icons:?\s*Use\s+(?:the\s+)?(?:existing\s+)?project\s+(?:icon\s+)?pattern\s+or\s+(?:inline\s+)?SVG fallback\.?|Icons\s+use\s+(?:the\s+)?(?:existing\s+)?project\s+(?:icon\s+)?pattern\s+or\s+(?:inline\s+)?SVG fallback\.?|Icons:?\s*Use the existing project icon pattern if available; otherwise use inline SVG fallback\.(?!\s*Do not assume)|Icons use the existing project icon pattern if available; otherwise use inline SVG fallback\.(?!\s*Do not assume)|Use inline SVG or project icon system\.?|No confirmed Kaze [`"]?Icon[`"]? export;?\s*use inline SVG fallbacks?(?: for icons)?\.?/i;
 
 const HOME_GREETING_MANIFEST_UNKNOWNS = [
   "- Navigation behaviour is not confirmed.",
@@ -1169,7 +1177,25 @@ function sanitizeParsedFiles(
     ),
   );
 
-  return repairKazeMappingSourceFilesFromManifest(filesWithoutLeftoverRows);
+  return sanitizeGeneratedContentLeaks(
+    repairKazeMappingSourceFilesFromManifest(filesWithoutLeftoverRows),
+  );
+}
+
+function sanitizeGeneratedContentLeaks(
+  files: Partial<Record<GeneratedFileName, string>>,
+): Partial<Record<GeneratedFileName, string>> {
+  return Object.fromEntries(
+    Object.entries(files).map(([filename, content]) => [
+      filename,
+      content
+        ? content.replace(
+            ABSOLUTE_WINDOWS_PATH_PATTERN,
+            "local bundled fallback catalog",
+          )
+        : content,
+    ]),
+  ) as Partial<Record<GeneratedFileName, string>>;
 }
 
 function removeScreenSpecificRows(
@@ -1639,17 +1665,18 @@ function trimTrailingBlankLines(lines: string[]): string[] {
   return trimmedLines;
 }
 
-function replaceUnsafeExactDarkVisualLines(
+function replaceUnsafeHexColorLines(
   text: string,
   replacement: string,
 ): string {
   return text
     .split("\n")
     .map((line) => {
-      if (!/#000000/i.test(line)) {
+      if (!HEX_COLOR_PATTERN.test(line)) {
         return line;
       }
 
+      HEX_COLOR_PATTERN.lastIndex = 0;
       const prefix =
         line.match(/^(\s*(?:[-*]\s+(?:\[[ x]\]\s*)?)?)/i)?.[0] ?? "";
       return `${prefix}${replacement}`;
@@ -1664,13 +1691,10 @@ function sanitizeHandoffContent(
     return handoff;
   }
 
-  const strongIconHandoffLine =
-    "Icons use the existing project icon pattern if available; otherwise use inline SVG fallback. Do not assume or install any icon library. There is no confirmed Kaze `Icon` export.";
-
   const sanitizedHandoff = normalizeComponentGalleryExportCountText(handoff)
     .replace(
       /Background is pure black\s*\(#000000\)\.?/gi,
-      "Dark themed background. Exact colour should follow Kaze/project tokens or existing project styles.",
+      TOKEN_BASED_VISUAL_RULE,
     )
     .replace(
       /pure black\s*\(#000000\)/gi,
@@ -1678,32 +1702,64 @@ function sanitizeHandoffContent(
     )
     .replace(
       /Specific icon library icons for the sidebar and quick actions\s*\([^)]*plus[^)]*microphone[^)]*image[^)]*pen[^)]*globe[^)]*\)\.?/gi,
-      strongIconHandoffLine,
+      STRICT_ICON_HANDOFF_RULE,
     )
     .replace(
       /Icons?:\s*Use inline SVG or project icon system;?\s*no confirmed Kaze ["`]?Icon["`]? export exists\.?/gi,
-      strongIconHandoffLine,
+      STRICT_ICON_HANDOFF_RULE,
     )
     .replace(
       /Icons?:\s*Use inline SVG or project icon set\.?/gi,
-      strongIconHandoffLine,
+      STRICT_ICON_HANDOFF_RULE,
     )
     .replace(
       /Icons?\s+use\s+the existing project icon pattern or inline SVG fallback\.?/gi,
-      strongIconHandoffLine,
+      STRICT_ICON_HANDOFF_RULE,
+    )
+    .replace(
+      /Icons?:\s*Use\s+(?:the\s+)?(?:existing\s+)?project\s+(?:icon\s+)?pattern\s+or\s+inline SVG fallback\.?/gi,
+      STRICT_ICON_HANDOFF_RULE,
+    )
+    .replace(
+      /Icons?\s+use\s+(?:the\s+)?(?:existing\s+)?project\s+(?:icon\s+)?pattern\s+or\s+inline SVG fallback\.?/gi,
+      STRICT_ICON_HANDOFF_RULE,
+    )
+    .replace(
+      /Icons?:\s*Use\s+(?:the\s+)?(?:existing\s+)?project\s+(?:icon\s+)?pattern\s+or\s+SVG fallback\.?/gi,
+      STRICT_ICON_HANDOFF_RULE,
+    )
+    .replace(
+      /Icons?\s+use\s+the existing project icon pattern if available; otherwise use inline SVG fallback(?:\. Do not assume or install any icon library\. There is no confirmed Kaze [`"]?Icon[`"]? export)?\.?/gi,
+      STRICT_ICON_HANDOFF_RULE,
+    )
+    .replace(
+      /Icons?\s+use\s+(?:the\s+)?(?:existing\s+)?project\s+(?:icon\s+)?pattern\s+or\s+SVG fallback\.?/gi,
+      STRICT_ICON_HANDOFF_RULE,
+    )
+    .replace(
+      /Use project icon pattern or inline SVG fallback for icons;?\s*no separate [`"]?Icon[`"]? export\.?/gi,
+      STRICT_ICON_HANDOFF_RULE,
+    )
+    .replace(
+      /Use inline SVG or project icon system\.?/gi,
+      STRICT_ICON_HANDOFF_RULE,
     )
     .replace(
       /No confirmed Kaze ["`]?Icon["`]? export;?\s*use inline SVG fallbacks? for icons\.?/gi,
-      strongIconHandoffLine,
+      STRICT_ICON_HANDOFF_RULE,
+    )
+    .replace(
+      /No confirmed Kaze ["`]?Icon["`]? export;?\s*use inline SVG fallbacks?\.?/gi,
+      STRICT_ICON_HANDOFF_RULE,
     )
     .replace(
       /Select a mode from the dropdown selector\.?/gi,
       "Interact with the visible `Thinking` selector. Exact options are unknown.",
     );
 
-  return replaceUnsafeExactDarkVisualLines(
+  return replaceUnsafeHexColorLines(
     sanitizedHandoff,
-    "Dark themed background. Exact colour should follow Kaze/project tokens or existing project styles.",
+    TOKEN_BASED_VISUAL_RULE,
   );
 }
 
@@ -2363,7 +2419,7 @@ function sanitizeClinePrompt(prompt: string | undefined): string | undefined {
     return prompt;
   }
 
-  const sanitizedPrompt = replaceUnsafeExactDarkVisualLines(
+  const sanitizedPrompt = replaceUnsafeHexColorLines(
     prompt,
     "Dark mode using existing Kaze/project tokens or styles.",
   )
@@ -2487,6 +2543,23 @@ function validateFinalOutput(
     warnings.push(message);
     failureIssues.push(issue);
   };
+
+  if (/[A-Za-z]:[\\/][^`\n]+/.test(finalTextForRiskScan)) {
+    addFailure("Generated output exposes absolute local path.");
+  }
+
+  const handoffForSafetyScan = params.files["handoff.md"] ?? "";
+  if (/#[0-9A-Fa-f]{3,8}\b/.test(handoffForSafetyScan)) {
+    addFailure(
+      "Generated output contains hardcoded hex color; use Kaze/project tokens instead.",
+    );
+  }
+
+  if (WEAK_HANDOFF_ICON_WORDING_PATTERN.test(handoffForSafetyScan)) {
+    addFailure(
+      "Generated output contains weak icon wording; use full icon fallback rule.",
+    );
+  }
 
   kazeContentErrors.forEach((error) => addFailure(error));
 
@@ -3031,15 +3104,15 @@ function validateHandoffAndClineVisualSafety(
 ): string[] {
   const warnings: string[] = [];
 
-  if (/#000000/i.test(files["handoff.md"] ?? "")) {
+  if (/#[0-9A-Fa-f]{3,8}\b/.test(files["handoff.md"] ?? "")) {
     warnings.push(
-      "handoff.md contains exact #000000 visual value; use Kaze/project tokens or styles instead.",
+      "handoff.md contains hardcoded hex color; use Kaze/project tokens or styles instead.",
     );
   }
 
-  if (/#000000/i.test(files["cline-implementation-prompt.md"] ?? "")) {
+  if (/#[0-9A-Fa-f]{3,8}\b/.test(files["cline-implementation-prompt.md"] ?? "")) {
     warnings.push(
-      "cline-implementation-prompt.md contains exact #000000 visual value; use Kaze/project tokens or styles instead.",
+      "cline-implementation-prompt.md contains hardcoded hex color; use Kaze/project tokens or styles instead.",
     );
   }
 

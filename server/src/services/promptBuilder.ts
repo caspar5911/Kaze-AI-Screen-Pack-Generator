@@ -220,11 +220,25 @@ export function buildLocalPackManifestMarkdown(
 function formatCatalogSourceDetail(
   catalogSource: KazeCatalogSourceMetadata,
 ): string {
-  if (catalogSource.source === "remote") {
+  return sanitizeCatalogSourceDetail(catalogSource.source);
+}
+
+function sanitizeCatalogSourceDetail(
+  source: KazeCatalogSourceMetadata["source"],
+): string {
+  if (source === "local") {
+    return "local bundled fallback catalog";
+  }
+
+  if (source === "cache") {
+    return "cached catalog";
+  }
+
+  if (source === "remote") {
     return "internal approved catalog endpoint";
   }
 
-  return `\`${catalogSource.sourceDetail}\``;
+  return "catalog source";
 }
 
 function buildCompactPackContext(packInputMarkdown: string): string {
@@ -363,7 +377,7 @@ Visual accuracy:
 - Do not output exact px/hex/radius values.
 - Write "Dark themed background. Follow Kaze/project tokens." instead of #000000.
 - Label estimated spacing as "approximate visual estimate".
-- Icons: Use the existing project icon pattern if available; otherwise use inline SVG fallback. Do not assume or install any icon library. There is no confirmed Kaze "Icon" export.
+- Icons use the existing project icon pattern if available; otherwise use inline SVG fallback. Do not assume or install any icon library. There is no confirmed Kaze \`Icon\` export.
 
 State rules for landing screens:
 - Default: shown

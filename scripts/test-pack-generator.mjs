@@ -136,6 +136,135 @@ assert.doesNotMatch(
 
 const result = parseGeneratedFilesForTest();
 
+const localCatalogManifest = buildLocalPackManifestMarkdown(
+  fields,
+  fileMapEntries,
+  {
+    packageName: "@pcs-security/kaze-ui-library",
+    kazeVersion: "3.1.8",
+    catalogVersion: "2026-05-15",
+    schemaVersion: "1.0.0",
+    source: "local",
+    sourceDetail:
+      "C:\\Users\\Caspar\\Desktop\\Kaze-AI-Screen-Pack-Generator\\config\\kaze-component-catalog.local.json",
+  },
+);
+assert.match(
+  localCatalogManifest,
+  /- Catalog source detail: local bundled fallback catalog/,
+  "local catalog source detail must not expose absolute paths",
+);
+assert.doesNotMatch(
+  localCatalogManifest,
+  /C:\\Users\\/,
+  "local manifest catalog metadata must not expose Windows user paths",
+);
+const cacheCatalogManifest = buildLocalPackManifestMarkdown(
+  fields,
+  fileMapEntries,
+  {
+    packageName: "@pcs-security/kaze-ui-library",
+    kazeVersion: "3.1.8",
+    catalogVersion: "2026-05-15",
+    schemaVersion: "1.0.0",
+    source: "cache",
+    sourceDetail:
+      "C:\\Users\\Caspar\\Desktop\\Kaze-AI-Screen-Pack-Generator\\server\\tmp\\catalog-cache.json",
+  },
+);
+assert.match(
+  cacheCatalogManifest,
+  /- Catalog source detail: cached catalog/,
+  "cached catalog source detail must not expose cache file paths",
+);
+const remoteCatalogManifest = buildLocalPackManifestMarkdown(
+  fields,
+  fileMapEntries,
+  {
+    packageName: "@pcs-security/kaze-ui-library",
+    kazeVersion: "3.1.8",
+    catalogVersion: "2026-05-15",
+    schemaVersion: "1.0.0",
+    source: "remote",
+    sourceDetail: "https://catalog.internal.example/kaze",
+  },
+);
+assert.match(
+  remoteCatalogManifest,
+  /- Catalog source detail: internal approved catalog endpoint/,
+  "remote catalog source detail must use approved endpoint wording",
+);
+
+const outputPolishResult = parseGeneratedFilesForTest({
+  "pack-manifest.md": [
+    baseFiles["pack-manifest.md"],
+    "",
+    "- Catalog source detail: `C:\\Users\\Caspar\\Desktop\\Kaze-AI-Screen-Pack-Generator\\config\\kaze-component-catalog.local.json`",
+  ].join("\n"),
+  "handoff.md": [
+    baseFiles["handoff.md"],
+    "",
+    "## Visual Notes",
+    "- Follow Kaze/project tokens for colors (e.g., Primary Blue `#0066FF`), borders, and shadows.",
+    "- Icons: Use project icon pattern or inline SVG fallback.",
+    "- Icons use project icon pattern or inline SVG fallback",
+    "- Icons use existing project pattern or inline SVG fallback.",
+    "- Icons use existing project icon pattern or SVG fallback.",
+    "- Use project icon pattern or inline SVG fallback for icons; no separate `Icon` export.",
+  ].join("\n"),
+});
+const polishedOutput = Object.values(outputPolishResult.files).join("\n\n");
+assert.equal(
+  outputPolishResult.quality.status,
+  "ready",
+  outputPolishResult.quality.issues.join("\n"),
+);
+assert.doesNotMatch(
+  polishedOutput,
+  /C:\\Users\\/,
+  "final sanitizer must remove absolute Windows paths from generated packs",
+);
+assert.doesNotMatch(
+  outputPolishResult.files["handoff.md"] ?? "",
+  /#[0-9A-Fa-f]{3,8}\b/,
+  "handoff sanitizer must remove hardcoded hex colors",
+);
+assert.match(
+  outputPolishResult.files["handoff.md"] ?? "",
+  /Follow Kaze\/project tokens for colors, borders, spacing, and shadows\. Do not hardcode exact colors unless the project token confirms them\./,
+  "handoff sanitizer must replace hardcoded colors with token-based wording",
+);
+assert.match(
+  outputPolishResult.files["handoff.md"] ?? "",
+  /Icons use the existing project icon pattern if available; otherwise use inline SVG fallback\. Do not assume or install any icon library\. There is no confirmed Kaze `Icon` export\./,
+  "handoff sanitizer must normalize icon wording to the strict fallback rule",
+);
+assert.doesNotMatch(
+  outputPolishResult.files["handoff.md"] ?? "",
+  /Icons:\s*Use project icon pattern or inline SVG fallback\./i,
+  "handoff sanitizer must remove labelled weak icon wording",
+);
+assert.doesNotMatch(
+  outputPolishResult.files["handoff.md"] ?? "",
+  /Icons use project icon pattern or inline SVG fallback/i,
+  "handoff sanitizer must remove unlabelled weak icon wording",
+);
+assert.doesNotMatch(
+  outputPolishResult.files["handoff.md"] ?? "",
+  /Icons use existing project pattern or inline SVG fallback/i,
+  "handoff sanitizer must remove existing-project weak icon wording",
+);
+assert.doesNotMatch(
+  outputPolishResult.files["handoff.md"] ?? "",
+  /Icons use existing project icon pattern or SVG fallback/i,
+  "handoff sanitizer must remove non-inline SVG weak icon wording",
+);
+assert.doesNotMatch(
+  outputPolishResult.files["handoff.md"] ?? "",
+  /Use project icon pattern or inline SVG fallback for icons;?\s*no separate [`"]?Icon[`"]? export/i,
+  "handoff sanitizer must remove weak icon wording",
+);
+
 const balancedDetailsResult = parseGeneratedFilesForTest({
   "handoff.md": [
     baseFiles["handoff.md"],
