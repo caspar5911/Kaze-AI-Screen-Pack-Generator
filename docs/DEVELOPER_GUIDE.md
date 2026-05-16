@@ -122,7 +122,7 @@ Returns:
   "rawResponse": "...",
   "quality": {
     "status": "ready",
-    "label": "10/10 Ready",
+    "label": "Pack Ready",
     "score": 10,
     "issues": []
   }
@@ -378,7 +378,7 @@ Quality is computed after parsing and sanitization.
 
 Statuses:
 
-- `10/10 Ready`: All expected files are present and sanitized output has no warnings.
+- `Pack Ready`: All expected files are present and sanitized output has no warnings.
 - `Needs Review`: Files are usable but warnings remain.
 - `Failed`: Critical parsing or output issues remain, such as missing files or reasoning blocks.
 

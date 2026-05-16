@@ -12,6 +12,7 @@ import {
   type AiAssistTargetField,
 } from "../services/aiAssist.js";
 import { isAllowedImageFilename } from "../utils/filenameParser.js";
+import { createRequestLogScope, quoteLogValue } from "../utils/logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -63,14 +64,20 @@ aiAssistRouter.post(
   upload.array("screenshots"),
   async (request, response, next) => {
     const uploadedFiles = (request.files ?? []) as Express.Multer.File[];
+    const log = createRequestLogScope("aiAssist");
 
     try {
+      log.info(`Request received uploadedFiles=${uploadedFiles.length}`);
       const fields = validateAiAssistFields(request.body);
+      log.info(
+        `Fields validated target=${fields.targetField} screenshots=${uploadedFiles.length} model=${quoteLogValue(fields.modelName)}`,
+      );
 
       if (uploadedFiles.length === 0) {
         response.status(400).json({
           error: "Upload at least one screenshot before using AI assist.",
         });
+        log.warn("Response sent status=400 reason=no-screenshots");
         return;
       }
 
@@ -82,6 +89,8 @@ aiAssistRouter.post(
         },
         targetField: fields.targetField,
       });
+      log.info(`Prompt built chars=${prompt.length}`);
+      log.info("AI assist model call started.");
       const modelResponse = await callAiEndpoint({
         endpointUrl: fields.aiEndpointUrl,
         modelName: fields.modelName,
@@ -93,9 +102,13 @@ aiAssistRouter.post(
         })),
         timeoutMs: getAiAssistTimeoutMs(),
       });
+      log.info(`AI assist model response received chars=${modelResponse.length}`);
 
+      log.info("Parsing AI assist response.");
       const assistResult = parseAiAssistResponse(modelResponse);
+      log.info("AI assist response parsed successfully.");
       response.json(assistResult);
+      log.info("Response sent status=200");
     } catch (error) {
       if (
         error instanceof Error &&
@@ -103,9 +116,11 @@ aiAssistRouter.post(
           "AI assist returned an invalid response. Please try again or edit manually."
       ) {
         response.status(502).json({ error: error.message });
+        log.warn("Response sent status=502 reason=invalid-ai-assist-response");
         return;
       }
 
+      log.error("AI assist request failed.", error);
       next(
         new Error(
           "AI assist failed. Check the on-prem model endpoint and try again.",
@@ -113,6 +128,7 @@ aiAssistRouter.post(
       );
     } finally {
       await cleanupFiles(uploadedFiles);
+      log.info(`Temp files cleaned count=${uploadedFiles.length}`);
     }
   },
 );

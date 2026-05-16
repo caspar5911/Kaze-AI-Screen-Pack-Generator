@@ -3629,7 +3629,7 @@ function computeQuality(params: {
 
   return {
     status: "ready",
-    label: "10/10 Ready",
+    label: "Pack Ready",
     score: 10,
     issues: [],
   };

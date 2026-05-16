@@ -255,7 +255,7 @@ Response:
   "rawResponse": "...",
   "quality": {
     "status": "ready",
-    "label": "10/10 Ready",
+    "label": "Pack Ready",
     "score": 10,
     "issues": []
   }
@@ -516,11 +516,11 @@ Warnings should degrade quality to `Needs Review` unless the issue is critical e
 
 Quality values:
 
-- `ready`: label `10/10 Ready`, score `10`
+- `ready`: label `Pack Ready`, score `10`
 - `needs_review`: label `Needs Review`, score `7`
 - `failed`: label `Failed`, score `0`
 
-Only show `10/10 Ready` when:
+Only show `Pack Ready` when:
 
 - All five files are present.
 - File references match the File Map.

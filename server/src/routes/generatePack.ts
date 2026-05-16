@@ -23,6 +23,12 @@ import {
   parseManifestResponse,
 } from "../services/responseParser.js";
 import { isAllowedImageFilename } from "../utils/filenameParser.js";
+import {
+  createRequestLogScope,
+  formatMs,
+  quoteLogValue,
+  type RequestLogScope,
+} from "../utils/logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,17 +74,25 @@ generatePackRouter.post(
   upload.array("screenshots"),
   async (request, response, next) => {
     const uploadedFiles = (request.files ?? []) as Express.Multer.File[];
+    const log = createRequestLogScope("generatePack");
+    const requestStart = Date.now();
 
     try {
+      log.info(`Request received uploadedFiles=${uploadedFiles.length}`);
       const fields = validateFields(request.body);
       const fastMode =
         request.body.fastMode === "true" || request.body.fastMode === true;
       const aiRequestTimeoutMs = getAiRequestTimeoutMs();
+      log.info(
+        `Fields validated project=${quoteLogValue(fields.projectName)} screenshots=${uploadedFiles.length} fastMode=${fastMode} model=${quoteLogValue(fields.modelName)}`,
+      );
 
       if (uploadedFiles.length === 0) {
+        log.warn("Rejected request because no screenshots were uploaded.");
         response
           .status(400)
           .json({ error: "At least one screenshot is required." });
+        log.info("Response sent status=400");
         return;
       }
 
@@ -89,14 +103,26 @@ generatePackRouter.post(
           mimetype: file.mimetype,
         })),
       );
-      const catalogLoad = await loadKazeCatalog();
-      logCatalogWarnings(catalogLoad.warnings);
+      log.info(
+        `File Map built files=${fileMap.entries.length} warnings=${fileMap.warnings.length} filenames=${fileMap.entries.map((entry) => entry.filename).join(", ")}`,
+      );
+      log.info("Loading Kaze catalog.");
+      const catalogLog = log.child("kazeCatalog");
+      const catalogLoad = await loadKazeCatalog({ log: catalogLog });
+      logCatalogWarnings(catalogLoad.warnings, catalogLog);
+      log.info(
+        `Kaze catalog loaded source=${catalogLoad.source} version=${catalogLoad.catalog.catalogVersion ?? "unknown"} warnings=${catalogLoad.warnings.length}`,
+      );
       const compactCatalog = await loadCompactCatalogJson(catalogLoad.catalog);
+      log.info(
+        `Compact catalog prepared chars=${compactCatalog.length} exports=${catalogLoad.catalog.confirmedExports?.length ?? 0}`,
+      );
       const packInputMarkdown = buildPackInputMarkdown(
         fields,
         fileMap.entries,
         fileMap.text,
       );
+      log.info(`Pack input built chars=${packInputMarkdown.length}`);
       const parsedFilenames = fileMap.entries.map((entry) => ({
         filename: entry.filename,
         screenName: entry.parsed.screenName,
@@ -109,6 +135,7 @@ generatePackRouter.post(
         mimetype: entry.mimetype,
       }));
 
+      log.info("Stage 1 manifest local started.");
       const manifestStart = Date.now();
       const localManifestMarkdown = buildLocalPackManifestMarkdown(
         fields,
@@ -127,8 +154,8 @@ generatePackRouter.post(
         localManifestMarkdown,
       ].join("\n");
       const stage1ManifestLocalMs = Date.now() - manifestStart;
-      console.log(
-        `[generatePack] Stage 1 manifest local: ${stage1ManifestLocalMs / 1000}s`,
+      log.info(
+        `Stage 1 manifest local completed ms=${stage1ManifestLocalMs}`,
       );
       const manifestParsed = parseManifestResponse({
         responseText: manifestRawResponse,
@@ -138,14 +165,22 @@ generatePackRouter.post(
       });
       const packManifestMarkdown =
         manifestParsed.files["pack-manifest.md"] ?? "";
+      log.info(
+        `Stage 1 parsed hasManifest=${Boolean(packManifestMarkdown)} warnings=${manifestParsed.warnings.length}`,
+      );
 
       // Stage 2: Handoff + Mapping (compact JSON catalog)
+      log.info("Stage 2 handoff-mapping prompt build started.");
       const handoffMappingPrompt = buildHandoffMappingPrompt({
         packInputMarkdown,
         packManifestMarkdown,
         compactCatalog,
         fileMapText: fileMap.text,
       });
+      log.info(
+        `Stage 2 handoff-mapping prompt built chars=${handoffMappingPrompt.length} images=${screenshots.length}`,
+      );
+      log.info("Stage 2 handoff-mapping AI call started.");
       const handoffStart = Date.now();
       let stage2ImagePayloadKb = 0;
       let stage2PromptChars = handoffMappingPrompt.length;
@@ -166,8 +201,8 @@ generatePackRouter.post(
         },
       });
       const stage2HandoffMappingMs = Date.now() - handoffStart;
-      console.log(
-        `[generatePack] Stage 2 handoff-mapping: ${stage2HandoffMappingMs / 1000}s (model=${fields.modelName}, endpoint=${stage2EndpointMode ?? "unknown"}, prompt=${stage2PromptChars} chars, images=${stage2ImagePayloadKb}KB/${stage2ImageCount}, timeout=${aiRequestTimeoutMs}ms)`,
+      log.info(
+        `Stage 2 handoff-mapping completed ms=${stage2HandoffMappingMs} model=${quoteLogValue(fields.modelName)} endpoint=${stage2EndpointMode ?? "unknown"} prompt=${stage2PromptChars} images=${stage2ImagePayloadKb}KB/${stage2ImageCount} timeout=${aiRequestTimeoutMs}ms`,
       );
       const handoffMappingParsed = parseHandoffMappingResponse({
         responseText: handoffMappingRawResponse,
@@ -178,8 +213,12 @@ generatePackRouter.post(
       const handoffMarkdown = handoffMappingParsed.files["handoff.md"] ?? "";
       const kazeComponentMappingMarkdown =
         handoffMappingParsed.files["kaze-component-mapping.md"] ?? "";
+      log.info(
+        `Stage 2 parsed hasHandoff=${Boolean(handoffMarkdown)} hasMapping=${Boolean(kazeComponentMappingMarkdown)} warnings=${handoffMappingParsed.warnings.length}`,
+      );
 
       // Stage 3: Cline + QA (local deterministic templates)
+      log.info("Stage 3 cline-qa local started.");
       const clineStart = Date.now();
       const clineImplementationPromptMarkdown =
         buildLocalClineImplementationPrompt({
@@ -195,9 +234,7 @@ generatePackRouter.post(
         qaChecklistMarkdown,
       ].join("\n");
       const stage3ClineQaMs = Date.now() - clineStart;
-      console.log(
-        `[generatePack] Stage 3 cline-qa local: ${stage3ClineQaMs / 1000}s`,
-      );
+      log.info(`Stage 3 cline-qa local completed ms=${stage3ClineQaMs}`);
       const clineQaFiles = {
         "cline-implementation-prompt.md": clineImplementationPromptMarkdown,
         "qa-checklist.md": qaChecklistMarkdown,
@@ -209,6 +246,7 @@ generatePackRouter.post(
         "stage-3-cline-qa-local": clineQaRawResponse,
       };
       const rawResponse = formatStageRawResponses(rawResponses);
+      log.info("Final validation started.");
       const validationStart = Date.now();
       const finalParsed = parseAllGeneratedFiles({
         files: mergeGeneratedFiles(
@@ -231,6 +269,9 @@ generatePackRouter.post(
       const quality = applyGenerationWarningsToQuality(
         finalParsed.quality,
         warnings,
+      );
+      log.info(
+        `Validation completed ms=${validationMs} status=${quality.status} warnings=${warnings.length} issues=${quality.issues.length}`,
       );
       const responseMeta = {
         mode: "local-manifest-local-cline-qa-staged",
@@ -278,6 +319,9 @@ generatePackRouter.post(
           quality,
           meta: responseMeta,
         });
+        log.warn(
+          `Response sent status=422 quality=${quality.status} warnings=${warnings.length} issues=${quality.issues.length}`,
+        );
         return;
       }
 
@@ -289,10 +333,15 @@ generatePackRouter.post(
         quality,
         meta: responseMeta,
       });
+      log.info(
+        `Response sent status=200 quality=${quality.status} warnings=${warnings.length} total=${formatMs(Date.now() - requestStart)}`,
+      );
     } catch (error) {
+      log.error("Request failed.", error);
       next(error);
     } finally {
       await cleanupFiles(uploadedFiles);
+      log.info(`Temp files cleaned count=${uploadedFiles.length}`);
     }
   },
 );
@@ -349,8 +398,16 @@ function getAiRequestTimeoutMs(): number {
   return defaultAiRequestTimeoutMs;
 }
 
-function logCatalogWarnings(warnings: string[]): void {
+function logCatalogWarnings(
+  warnings: string[],
+  log?: RequestLogScope,
+): void {
   warnings.forEach((warning) => {
+    if (log) {
+      log.warn(warning);
+      return;
+    }
+
     console.warn(`[kazeCatalog] ${warning}`);
   });
 }

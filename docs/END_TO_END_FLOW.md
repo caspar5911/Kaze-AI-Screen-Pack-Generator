@@ -232,7 +232,7 @@ The design is intentional: deterministic repairs clean known repeat issues, whil
 
 The parser computes one of three statuses:
 
-- `ready`: label `10/10 Ready`, score `10`
+- `ready`: label `Pack Ready`, score `10`
 - `needs_review`: label `Needs Review`, score `7`
 - `failed`: label `Failed`, score `0`
 
@@ -335,7 +335,7 @@ On success, `/api/generate-pack` returns:
   },
   "quality": {
     "status": "ready",
-    "label": "10/10 Ready",
+    "label": "Pack Ready",
     "score": 10,
     "issues": []
   },

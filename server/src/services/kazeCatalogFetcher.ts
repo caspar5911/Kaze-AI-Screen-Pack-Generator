@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { KazeCatalog } from "./kazeCatalog.js";
 import { setKazeCatalog } from "./kazeCatalog.js";
+import type { RequestLogScope } from "../utils/logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,6 +35,7 @@ export async function loadKazeCatalog(options?: {
   catalogUrl?: string;
   cachePath?: string;
   localPath?: string;
+  log?: RequestLogScope;
 }): Promise<KazeCatalogLoadResult> {
   const catalogUrl = options?.catalogUrl ?? process.env.KAZE_CATALOG_URL ?? "";
   const cachePath = resolveFromRepoRoot(
@@ -47,14 +49,19 @@ export async function loadKazeCatalog(options?: {
       defaultLocalPath,
   );
   const warnings: string[] = [];
+  const log = options?.log;
 
   if (catalogUrl) {
     try {
+      log?.info("Trying remote Kaze catalog source=internal-approved-endpoint");
       const remoteJson = await fetchRemoteCatalog(catalogUrl);
       const remoteCatalog = parseCatalogJson(remoteJson, catalogUrl);
       const validCatalog = validateAndPrepareCatalog(remoteCatalog, catalogUrl);
       await writeCatalogCache(cachePath, validCatalog);
       setKazeCatalog(validCatalog);
+      log?.info(
+        `Remote Kaze catalog valid source=remote version=${validCatalog.catalogVersion ?? "unknown"} cacheUpdated=true`,
+      );
       return {
         catalog: validCatalog,
         source: "remote",
@@ -65,12 +72,15 @@ export async function loadKazeCatalog(options?: {
       warnings.push(
         `Remote Kaze catalog fetch failed or returned an invalid catalog. Cache was not overwritten. ${formatError(error)}`,
       );
+      log?.warn("Remote Kaze catalog unavailable or invalid. Cache was not overwritten.");
     }
   } else {
     warnings.push("Remote Kaze catalog URL is not configured.");
+    log?.warn("Remote Kaze catalog URL is not configured. Trying cache.");
   }
 
   try {
+    log?.info(`Trying cached Kaze catalog path=${cachePath}`);
     const cacheCatalog = await readCatalogFile(cachePath);
     const validCatalog = validateAndPrepareCatalog(
       cacheCatalog,
@@ -78,6 +88,9 @@ export async function loadKazeCatalog(options?: {
     );
     setKazeCatalog(validCatalog);
     warnings.push("Remote Kaze catalog unavailable. Using cached catalog.");
+    log?.info(
+      `Cached Kaze catalog valid source=cache version=${validCatalog.catalogVersion ?? "unknown"}`,
+    );
     return {
       catalog: validCatalog,
       source: "cache",
@@ -88,9 +101,11 @@ export async function loadKazeCatalog(options?: {
     warnings.push(
       `Cached Kaze catalog invalid or missing. ${formatError(error)}`,
     );
+    log?.warn("Cached Kaze catalog invalid or missing. Trying local fallback.");
   }
 
   try {
+    log?.info(`Trying local fallback Kaze catalog path=${localPath}`);
     const localCatalog = await readCatalogFile(localPath);
     const validCatalog = validateAndPrepareCatalog(
       localCatalog,
@@ -98,6 +113,9 @@ export async function loadKazeCatalog(options?: {
     );
     setKazeCatalog(validCatalog);
     warnings.push("Using local fallback Kaze catalog.");
+    log?.info(
+      `Local fallback Kaze catalog valid source=local version=${validCatalog.catalogVersion ?? "unknown"}`,
+    );
     return {
       catalog: validCatalog,
       source: "local",
@@ -108,8 +126,10 @@ export async function loadKazeCatalog(options?: {
     warnings.push(
       `Local fallback Kaze catalog invalid or missing. ${formatError(error)}`,
     );
+    log?.warn("Local fallback Kaze catalog invalid or missing.");
   }
 
+  log?.error("Unable to load a valid Kaze catalog from remote, cache, or local fallback.");
   throw new Error(
     [
       "Unable to load a valid Kaze catalog.",

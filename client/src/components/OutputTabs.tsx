@@ -23,6 +23,10 @@ interface ParsedFilename {
   viewport: string;
 }
 
+interface UnknownMappingRow {
+  uiElement: string;
+}
+
 interface OutputTabsProps {
   files: GeneratedFiles;
   rawResponse: string;
@@ -63,11 +67,13 @@ export function OutputTabs({
   const [resolvedCount, setResolvedCount] = useState(0);
   const [revalidating, setRevalidating] = useState(false);
 
-  const hasUnknownCells = useMemo(() => {
+  const unknownCells = useMemo(() => {
     const mapping = files["kaze-component-mapping.md"];
-    if (!mapping) return false;
-    return /Unknown\s*\/\s*verify from Kaze/.test(mapping);
+    if (!mapping) return [];
+    return extractUnknownRows(mapping);
   }, [files]);
+  const unknownCount = unknownCells.length;
+  const hasUnknownCells = unknownCount > 0;
 
   const canResolve =
     hasUnknownCells &&
@@ -310,36 +316,53 @@ export function OutputTabs({
         </div>
       )}
 
-      {hasUnknownCells && (
-        <div className="resolve-unknowns-section">
-          {resolvedCount > 0 && (
-            <div className="resolve-success">
-              ✓ Resolved {resolvedCount} unknown component(s)
-            </div>
-          )}
-          {resolveError && <div className="resolve-error">{resolveError}</div>}
-          <button
-            type="button"
-            className="secondary-button"
-            disabled={
-              resolvingUnknowns || revalidating || !aiEndpointUrl || !modelName
-            }
-            onClick={handleResolveUnknowns}
-          >
-            {resolvingUnknowns || revalidating ? (
-              <>
-                <Loader2 className="spin" aria-hidden="true" size={16} />
-                {revalidating ? "Re-validating..." : "Resolving..."}
-              </>
-            ) : (
-              "Resolve Unknowns"
-            )}
-          </button>
-          <span className="resolve-hint">
-            Use AI to identify closest Kaze exports for "Unknown" components
+      <div className="resolve-unknowns-section">
+        <div className="resolve-summary">
+          <strong>
+            {unknownCount === 0
+              ? "No unresolved Kaze mappings"
+              : `${unknownCount} unresolved Kaze mapping${unknownCount === 1 ? "" : "s"}`}
+          </strong>
+          <span>
+            {unknownCount === 0
+              ? "All mapping rows currently use confirmed Kaze exports."
+              : formatUnknownSummary(unknownCells)}
           </span>
         </div>
-      )}
+        {hasUnknownCells && (
+          <>
+            {resolvedCount > 0 && (
+              <div className="resolve-success">
+                Resolved {resolvedCount} unknown component
+                {resolvedCount === 1 ? "" : "s"}
+              </div>
+            )}
+            {resolveError && (
+              <div className="resolve-error">{resolveError}</div>
+            )}
+          </>
+        )}
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={!canResolve || resolvingUnknowns || revalidating}
+          onClick={handleResolveUnknowns}
+        >
+          {resolvingUnknowns || revalidating ? (
+            <>
+              <Loader2 className="spin" aria-hidden="true" size={16} />
+              {revalidating ? "Re-validating..." : "Resolving..."}
+            </>
+          ) : (
+            "Resolve Unknowns"
+          )}
+        </button>
+        <span className="resolve-hint">
+          {hasUnknownCells
+            ? "Ask the configured model to choose confirmed Kaze exports for unresolved rows."
+            : "Resolve is available only when the mapping contains Unknown / verify from Kaze rows."}
+        </span>
+      </div>
 
       <div className="tabs" role="tablist" aria-label="Generated files">
         {tabs.map((filename) => (
@@ -372,6 +395,61 @@ function formatAllFiles(files: GeneratedFiles, rawResponse: string): string {
     .join("\n\n");
 
   return parsedContent || rawResponse;
+}
+
+function extractUnknownRows(mapping: string): UnknownMappingRow[] {
+  const rows: UnknownMappingRow[] = [];
+
+  mapping.split("\n").forEach((line) => {
+    const cells = parseMappingTableRow(line);
+    if (!cells || cells.length < 5) {
+      return;
+    }
+
+    const [uiElement, , exactExport] = cells;
+    if (
+      /^UI Element$/i.test(uiElement) ||
+      isTableSeparator(cells) ||
+      !/Unknown\s*\/\s*verify from Kaze/i.test(exactExport)
+    ) {
+      return;
+    }
+
+    rows.push({
+      uiElement,
+    });
+  });
+
+  return rows;
+}
+
+function parseMappingTableRow(line: string): string[] | null {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) {
+    return null;
+  }
+
+  return trimmed
+    .slice(1, -1)
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function isTableSeparator(cells: string[]): boolean {
+  return cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function formatUnknownSummary(rows: UnknownMappingRow[]): string {
+  const names = rows
+    .map((row) => row.uiElement)
+    .filter(Boolean)
+    .slice(0, 3);
+  const remaining = rows.length - names.length;
+  const examples = names.length > 0 ? names.join(", ") : "Unlabeled rows";
+
+  return remaining > 0
+    ? `${examples}, and ${remaining} more need verification.`
+    : `${examples} need verification.`;
 }
 
 function slugify(value: string): string {
