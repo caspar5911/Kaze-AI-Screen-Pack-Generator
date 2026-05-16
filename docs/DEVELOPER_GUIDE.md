@@ -2,6 +2,8 @@
 
 This guide explains how the Kaze Screen Pack Generator is structured and where to update core behavior.
 
+For a narrative walkthrough of the full browser-to-ZIP path, see [End-To-End Flow](END_TO_END_FLOW.md).
+
 ## Frontend Architecture
 
 Frontend code lives in:

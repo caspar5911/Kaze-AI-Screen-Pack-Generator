@@ -178,6 +178,7 @@ The output should not include fake Kaze-prefixed names, invented filenames, reas
 ## Documentation
 
 - [User Guide](docs/USER_GUIDE.md)
+- [End-To-End Flow](docs/END_TO_END_FLOW.md)
 - [Developer Guide](docs/DEVELOPER_GUIDE.md)
 - [AI Prompt Guide](docs/AI_PROMPT_GUIDE.md)
 - [Output Spec](docs/OUTPUT_SPEC.md)
