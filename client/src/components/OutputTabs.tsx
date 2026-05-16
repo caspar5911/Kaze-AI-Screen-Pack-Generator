@@ -176,7 +176,7 @@ export function OutputTabs({
       // and the Exact Kaze Export column is "Unknown / verify from Kaze"
       const lines = updated.split("\n");
       const result = lines.map((line) => {
-        const cells = parseTableRow(line);
+        const cells = parseMappingTableRow(line);
         if (!cells || cells.length < 5) return line;
         if (
           cells[0].trim() === r.uiElement.trim() &&
@@ -189,15 +189,6 @@ export function OutputTabs({
       updated = result.join("\n");
     }
     return updated;
-  }
-
-  function parseTableRow(line: string): string[] | null {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) return null;
-    return trimmed
-      .slice(1, -1)
-      .split("|")
-      .map((c) => c.trim());
   }
 
   const [activeFile, setActiveFile] = useState<OutputTabName>(

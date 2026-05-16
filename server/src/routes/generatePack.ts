@@ -27,8 +27,12 @@ import {
   createRequestLogScope,
   formatMs,
   quoteLogValue,
-  type RequestLogScope,
 } from "../utils/logger.js";
+import {
+  cleanupUploadedFiles,
+  getOptionalString,
+  getRequiredString,
+} from "../utils/requestHelpers.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -109,7 +113,7 @@ generatePackRouter.post(
       log.info("Loading Kaze catalog.");
       const catalogLog = log.child("kazeCatalog");
       const catalogLoad = await loadKazeCatalog({ log: catalogLog });
-      logCatalogWarnings(catalogLoad.warnings, catalogLog);
+      catalogLoad.warnings.forEach((warning) => catalogLog.warn(warning));
       log.info(
         `Kaze catalog loaded source=${catalogLoad.source} version=${catalogLoad.catalog.catalogVersion ?? "unknown"} warnings=${catalogLoad.warnings.length}`,
       );
@@ -340,7 +344,7 @@ generatePackRouter.post(
       log.error("Request failed.", error);
       next(error);
     } finally {
-      await cleanupFiles(uploadedFiles);
+      await cleanupUploadedFiles(uploadedFiles);
       log.info(`Temp files cleaned count=${uploadedFiles.length}`);
     }
   },
@@ -375,19 +379,6 @@ function validateFields(body: Record<string, unknown>) {
   };
 }
 
-function getRequiredString(value: unknown, label: string): string {
-  const text = typeof value === "string" ? value.trim() : "";
-  if (!text) {
-    throw new Error(`${label} is required.`);
-  }
-
-  return text;
-}
-
-function getOptionalString(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
 function getAiRequestTimeoutMs(): number {
   const configured = Number(process.env.AI_REQUEST_TIMEOUT_MS);
 
@@ -396,26 +387,6 @@ function getAiRequestTimeoutMs(): number {
   }
 
   return defaultAiRequestTimeoutMs;
-}
-
-function logCatalogWarnings(
-  warnings: string[],
-  log?: RequestLogScope,
-): void {
-  warnings.forEach((warning) => {
-    if (log) {
-      log.warn(warning);
-      return;
-    }
-
-    console.warn(`[kazeCatalog] ${warning}`);
-  });
-}
-
-async function cleanupFiles(files: Express.Multer.File[]): Promise<void> {
-  await Promise.allSettled(
-    files.map((file) => fs.rm(file.path, { force: true })),
-  );
 }
 
 function formatStageRawResponses(rawResponses: Record<string, string>): string {

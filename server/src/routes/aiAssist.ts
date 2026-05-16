@@ -13,6 +13,11 @@ import {
 } from "../services/aiAssist.js";
 import { isAllowedImageFilename } from "../utils/filenameParser.js";
 import { createRequestLogScope, quoteLogValue } from "../utils/logger.js";
+import {
+  cleanupUploadedFiles,
+  getOptionalString,
+  getRequiredString,
+} from "../utils/requestHelpers.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -127,7 +132,7 @@ aiAssistRouter.post(
         ),
       );
     } finally {
-      await cleanupFiles(uploadedFiles);
+      await cleanupUploadedFiles(uploadedFiles);
       log.info(`Temp files cleaned count=${uploadedFiles.length}`);
     }
   },
@@ -164,19 +169,6 @@ function validateAiAssistFields(body: Record<string, unknown>) {
   };
 }
 
-function getRequiredString(value: unknown, label: string): string {
-  const text = typeof value === "string" ? value.trim() : "";
-  if (!text) {
-    throw new Error(`${label} is required.`);
-  }
-
-  return text;
-}
-
-function getOptionalString(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
 function getAiAssistTimeoutMs(): number {
   const configured = Number(
     process.env.AI_ASSIST_TIMEOUT_MS ?? process.env.AI_REQUEST_TIMEOUT_MS,
@@ -187,10 +179,4 @@ function getAiAssistTimeoutMs(): number {
   }
 
   return defaultAiAssistTimeoutMs;
-}
-
-async function cleanupFiles(files: Express.Multer.File[]): Promise<void> {
-  await Promise.allSettled(
-    files.map((file) => fs.rm(file.path, { force: true })),
-  );
 }
