@@ -221,6 +221,98 @@ assert.doesNotMatch(
   "details tags closed after file markers must still be stripped",
 );
 
+const markerlessFencedStage2Response = parseHandoffMappingResponse({
+  responseText: [
+    "```markdown",
+    "# Kaze UI Library Handoff",
+    "",
+    "## Overview",
+    "- Reference gallery showcasing all available UI components.",
+    "",
+    "## Screenshots",
+    "- `screenshots/KazeComponentGallery_Default_Desktop.png`",
+    "```",
+    "",
+    "```markdown",
+    "# Kaze Component Mapping",
+    "",
+    "## Source Files",
+    "- `screenshots/KazeComponentGallery_Default_Desktop.png`",
+    "",
+    "| UI Element | Intended Kaze Pattern | Exact Kaze Export | Confidence | Notes |",
+    "|---|---|---|---|---|",
+    "| Button preview | Button | Button | High | Recovered from markerless response. |",
+    "```",
+  ].join("\n"),
+  allowedFilenames: testAllowedFilenames,
+  kazeComponentCatalog: testCatalog,
+  parsedFilenames: testParsedFilenames,
+});
+assert.equal(
+  markerlessFencedStage2Response.quality.status,
+  "ready",
+  markerlessFencedStage2Response.quality.issues.join("\n"),
+);
+assert.match(
+  markerlessFencedStage2Response.files["handoff.md"] ?? "",
+  /# Kaze UI Library Handoff/,
+  "Stage 2 parser must recover handoff.md from markerless fenced headings",
+);
+assert.match(
+  markerlessFencedStage2Response.files["kaze-component-mapping.md"] ?? "",
+  /\| Button Examples \| Clickable action \| Button \| High \|/,
+  "Stage 2 parser must recover and sanitize markerless component mapping",
+);
+
+const markerlessGalleryHandoffOnlyResponse = parseHandoffMappingResponse({
+  responseText: [
+    "```markdown",
+    "# Kaze UI Library Handoff",
+    "",
+    "## Overview",
+    "- Reference gallery showcasing all available UI components.",
+    "",
+    "## Screenshots",
+    "- `screenshots/KazeComponentGallery_Default_Desktop.png`",
+    "```",
+  ].join("\n"),
+  allowedFilenames: testAllowedFilenames,
+  kazeComponentCatalog: testCatalog,
+  parsedFilenames: testParsedFilenames,
+});
+assert.equal(
+  markerlessGalleryHandoffOnlyResponse.quality.status,
+  "ready",
+  markerlessGalleryHandoffOnlyResponse.quality.issues.join("\n"),
+);
+assert.match(
+  markerlessGalleryHandoffOnlyResponse.files["handoff.md"] ?? "",
+  /# Kaze UI Library Handoff/,
+  "Stage 2 parser must recover handoff.md from a single markerless handoff block",
+);
+assert.match(
+  markerlessGalleryHandoffOnlyResponse.files["kaze-component-mapping.md"] ?? "",
+  /\| Checkbox Dropdown Example \| Multi-select dropdown \| CheckboxDropdown \| High \|/,
+  "Gallery packs must receive deterministic mapping even if the model omitted the mapping file marker",
+);
+
+const unrecognizableStage2Response = parseHandoffMappingResponse({
+  responseText:
+    "Here is your pack. It has useful prose but no recognizable file markers or Stage 2 headings.",
+  allowedFilenames: testAllowedFilenames,
+  kazeComponentCatalog: testCatalog,
+  parsedFilenames: testParsedFilenames,
+});
+assert.equal(
+  unrecognizableStage2Response.quality.status,
+  "failed",
+  "unrecognizable Stage 2 output must still fail",
+);
+assert.match(
+  unrecognizableStage2Response.quality.issues.join("\n"),
+  /Missing expected files: handoff\.md/,
+);
+
 const malformedDetailsResult = parseGeneratedFilesForTest({
   "handoff.md": [
     baseFiles["handoff.md"],

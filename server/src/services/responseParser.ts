@@ -470,6 +470,7 @@ export function parseAllGeneratedFiles(params: {
     ),
     params.kazeComponentCatalog,
     params.parsedFilenames ?? [],
+    EXPECTED_FILE_NAMES,
   );
   const finalValidation = validateFinalOutput({
     text: Object.values(sanitizedFiles).filter(Boolean).join("\n\n"),
@@ -541,13 +542,20 @@ function parseGeneratedResponse(params: {
     params.allowedFilenames,
   );
 
+  const parsedFiles = parseFiles(filenameSanitized.text);
+  const recoveredFiles = recoverStage2FilesFromHeadings({
+    files: parsedFiles,
+    text: filenameSanitized.text,
+    expectedFileNames: params.expectedFileNames,
+  });
   const files = stripReasoningBlocksFromFiles(
-    parseFiles(filenameSanitized.text),
+    recoveredFiles,
   );
   const sanitizedFiles = sanitizeParsedFiles(
     files,
     params.kazeComponentCatalog,
     params.parsedFilenames ?? [],
+    params.expectedFileNames,
   );
   const missingFiles = params.expectedFileNames.filter(
     (filename) => !sanitizedFiles[filename],
@@ -673,6 +681,118 @@ function stripOuterMarkdownFence(text: string): {
     text: match[1].trim(),
     changed: true,
   };
+}
+
+function recoverStage2FilesFromHeadings(params: {
+  files: Partial<Record<GeneratedFileName, string>>;
+  text: string;
+  expectedFileNames: readonly GeneratedFileName[];
+}): Partial<Record<GeneratedFileName, string>> {
+  const expectsStage2Files =
+    params.expectedFileNames.includes("handoff.md") &&
+    params.expectedFileNames.includes("kaze-component-mapping.md");
+
+  if (!expectsStage2Files) {
+    return params.files;
+  }
+
+  const recovered = { ...params.files };
+
+  if (recovered["handoff.md"] && recovered["kaze-component-mapping.md"]) {
+    return recovered;
+  }
+
+  const fencedBlocks = extractMarkdownFenceBlocks(params.text);
+  const handoffBlock = fencedBlocks.find((block) => hasHandoffHeading(block));
+  const mappingBlock = fencedBlocks.find((block) => hasMappingHeading(block));
+
+  if (!recovered["handoff.md"] && handoffBlock) {
+    recovered["handoff.md"] = cleanRecoveredStage2Content(handoffBlock);
+  }
+
+  if (!recovered["kaze-component-mapping.md"] && mappingBlock) {
+    recovered["kaze-component-mapping.md"] =
+      cleanRecoveredStage2Content(mappingBlock);
+  }
+
+  if (recovered["handoff.md"] && recovered["kaze-component-mapping.md"]) {
+    return recovered;
+  }
+
+  const headingSplit = splitStage2ContentByHeadings(params.text);
+
+  if (!recovered["handoff.md"] && headingSplit.handoff) {
+    recovered["handoff.md"] = cleanRecoveredStage2Content(
+      headingSplit.handoff,
+    );
+  }
+
+  if (!recovered["kaze-component-mapping.md"] && headingSplit.mapping) {
+    recovered["kaze-component-mapping.md"] = cleanRecoveredStage2Content(
+      headingSplit.mapping,
+    );
+  }
+
+  return recovered;
+}
+
+function extractMarkdownFenceBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  const fencePattern = /```(?:markdown|md)?\s*\n([\s\S]*?)```/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = fencePattern.exec(text))) {
+    blocks.push(match[1].trim());
+  }
+
+  return blocks;
+}
+
+function splitStage2ContentByHeadings(text: string): {
+  handoff?: string;
+  mapping?: string;
+} {
+  const stripped = stripOuterMarkdownFence(text).text.trim();
+  const handoffMatch = findStage2Heading(stripped, "handoff");
+  const mappingMatch = findStage2Heading(stripped, "mapping");
+  const result: { handoff?: string; mapping?: string } = {};
+
+  if (handoffMatch) {
+    const handoffEnd =
+      mappingMatch && mappingMatch.index > handoffMatch.index
+        ? mappingMatch.index
+        : stripped.length;
+    result.handoff = stripped.slice(handoffMatch.index, handoffEnd).trim();
+  }
+
+  if (mappingMatch) {
+    result.mapping = stripped.slice(mappingMatch.index).trim();
+  }
+
+  return result;
+}
+
+function findStage2Heading(
+  text: string,
+  kind: "handoff" | "mapping",
+): RegExpExecArray | null {
+  const headingPattern =
+    kind === "handoff"
+      ? /^#{1,3}\s*(?:Kaze\s+UI\s+Library\s+|Kaze\s+UI\s+|Kaze\s+)?Handoff\b.*$/im
+      : /^#{1,3}\s*(?:Kaze\s+)?Component\s+Mapping\b.*$/im;
+  return headingPattern.exec(text);
+}
+
+function hasHandoffHeading(text: string): boolean {
+  return Boolean(findStage2Heading(text, "handoff"));
+}
+
+function hasMappingHeading(text: string): boolean {
+  return Boolean(findStage2Heading(text, "mapping"));
+}
+
+function cleanRecoveredStage2Content(text: string): string {
+  return stripOuterMarkdownFence(text).text.trim();
 }
 
 function repairScreenHeadings(
@@ -1017,6 +1137,7 @@ function sanitizeParsedFiles(
   files: Partial<Record<GeneratedFileName, string>>,
   kazeComponentCatalog: string,
   parsedFilenames: ParsedFilenameContext[] = [],
+  expectedFileNames: readonly GeneratedFileName[] = EXPECTED_FILE_NAMES,
 ): Partial<Record<GeneratedFileName, string>> {
   const missingFilenameRepairedFiles =
     repairMissingFilenamePlaceholdersInFiles(files);
@@ -1041,7 +1162,11 @@ function sanitizeParsedFiles(
   };
 
   const filesWithoutLeftoverRows = removeScreenSpecificRows(
-    ensureComponentGalleryMappingContent(sanitizedFiles, parsedFilenames),
+    ensureComponentGalleryMappingContent(
+      sanitizedFiles,
+      parsedFilenames,
+      expectedFileNames,
+    ),
   );
 
   return repairKazeMappingSourceFilesFromManifest(filesWithoutLeftoverRows);
@@ -1101,14 +1226,16 @@ function repairMissingFilenamePlaceholdersInFiles(
 function ensureComponentGalleryMappingContent(
   files: Partial<Record<GeneratedFileName, string>>,
   parsedFilenames: ParsedFilenameContext[] = [],
+  expectedFileNames: readonly GeneratedFileName[] = EXPECTED_FILE_NAMES,
 ): Partial<Record<GeneratedFileName, string>> {
   const manifest = files["pack-manifest.md"] ?? "";
   const mapping = files["kaze-component-mapping.md"] ?? "";
   const filenameContext = parsedFilenames
     .map((parsed) => `${parsed.filename} ${parsed.screenName ?? ""}`)
     .join("\n");
+  const expectsMapping = expectedFileNames.includes("kaze-component-mapping.md");
 
-  if (!mapping) {
+  if (!mapping && !expectsMapping) {
     return files;
   }
 

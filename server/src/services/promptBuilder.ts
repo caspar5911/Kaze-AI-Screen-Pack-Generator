@@ -428,6 +428,11 @@ CRITICAL: Never output bare "Unknown" by itself. Always write "Unknown / verify 
 
 Output rules:
 - Output only the two file sections. No private reasoning, citations, or commentary.
+- You MUST use these exact file markers:
+  --- File: handoff.md ---
+  --- File: kaze-component-mapping.md ---
+- Do not wrap either file in standalone markdown fences.
+- Do not output bare headings such as "# Kaze UI Library Handoff" without the required file marker immediately before the file content.
 - Keep each file concise. Do not repeat the full pack context, catalog JSON, or File Map in the output.
 - Prefer short bullets over paragraphs.
 
