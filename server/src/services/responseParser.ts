@@ -2,7 +2,6 @@ import {
   getConfirmedKazeExports,
   getForbiddenFakeNames,
   getPrimaryForbiddenFakeNames,
-  getVisualKazeExports,
   repairFakeKazeName as repairFakeKazeNameFromCatalog,
   validateKazeMappingContent,
   VALID_EXPORTS_THAT_MUST_NOT_BE_FORBIDDEN,
@@ -84,7 +83,14 @@ const KAZE_IMPORT_RULE_SECTION = [
   "",
   "Incorrect:",
   "```ts",
-  'import { KazeButton, KazeInput, KazeSelect, KazeAvatar, KazeTypography } from "@pcs-security/kaze-ui-library";',
+  "// WRONG — fake Kaze-prefixed exports do not exist",
+  "import {",
+  "  KazeButton,",
+  "  KazeInput,",
+  "  KazeSelect,",
+  "  KazeAvatar,",
+  "  KazeTypography,",
+  '} from "@pcs-security/kaze-ui-library";',
   "```",
 ].join("\n");
 
@@ -135,6 +141,268 @@ const PACK_CONTENT_FILES = [
   "validate-pack.mjs",
   "cline-readiness-standard.md",
 ];
+
+const COMPONENT_GALLERY_MAPPING_ROWS = [
+  [
+    "Heading / Body Text",
+    "Typography",
+    "Typography",
+    "High",
+    "Use for gallery headings, labels, and descriptions.",
+  ],
+  [
+    "Button Examples",
+    "Clickable action",
+    "Button",
+    "High",
+    "Use for primary, secondary, and action button previews.",
+  ],
+  [
+    "Avatar Example",
+    "Circular profile image",
+    "Avatar",
+    "High",
+    "Use for circular initials or profile image preview.",
+  ],
+  [
+    "Badge Example",
+    "Count bubble",
+    "Badge",
+    "High",
+    "Use for small count indicators.",
+  ],
+  [
+    "Text Input Example",
+    "Single-line input",
+    "TextField",
+    "High",
+    "Use for compact text input previews.",
+  ],
+  [
+    "Text Area Example",
+    "Multi-line input",
+    "TextArea",
+    "High",
+    "Use for notes or long-text preview.",
+  ],
+  [
+    "Dropdown Example",
+    "Select field",
+    "Dropdown",
+    "High",
+    "Use for option picker preview.",
+  ],
+  [
+    "Date Input Example",
+    "Date picker",
+    "Datepicker",
+    "High",
+    "Use for date selection preview.",
+  ],
+  [
+    "Time Input Example",
+    "Time picker",
+    "Timepicker",
+    "High",
+    "Use for time selection preview.",
+  ],
+  [
+    "Checkbox Example",
+    "Checkbox",
+    "Checkbox",
+    "High",
+    "Use for boolean checkbox preview.",
+  ],
+  [
+    "Radio Example",
+    "Radio option",
+    "Radio",
+    "High",
+    "Use for single radio option preview.",
+  ],
+  [
+    "Radio Group Example",
+    "Grouped radio options",
+    "RadioGroup",
+    "High",
+    "Use for single-choice grouped options.",
+  ],
+  [
+    "Toggle Example",
+    "Toggle switch",
+    "Toggle",
+    "High",
+    "Use for on/off switch preview.",
+  ],
+  [
+    "Segmented Example",
+    "Segmented control",
+    "Segmented",
+    "High",
+    "Use for segmented mode selector.",
+  ],
+  [
+    "Slider Example",
+    "Range selector",
+    "Slider",
+    "High",
+    "Use for range input preview.",
+  ],
+  [
+    "Tag Example",
+    "Metadata/category label",
+    "Tag",
+    "High",
+    "Use for category chips and metadata labels.",
+  ],
+  [
+    "Lozenge Example",
+    "Status label",
+    "Lozenge",
+    "High",
+    "Use for compact status/state label.",
+  ],
+  [
+    "Pills Example",
+    "Pill group",
+    "Pills",
+    "High",
+    "Use for pill-style option group.",
+  ],
+  [
+    "Swatch Example",
+    "Colour swatch",
+    "Swatch",
+    "High",
+    "Use for colour samples.",
+  ],
+  [
+    "Progress Example",
+    "Progress bar",
+    "Progress",
+    "High",
+    "Use for progress indicator.",
+  ],
+  [
+    "Steps Example",
+    "Stepper",
+    "Steps",
+    "High",
+    "Use for multi-step flow preview.",
+  ],
+  [
+    "Breadcrumb Example",
+    "Breadcrumb navigation",
+    "Breadcrumb",
+    "High",
+    "Use for hierarchy/path navigation.",
+  ],
+  [
+    "Tabs Example",
+    "Tab navigation",
+    "Tabs",
+    "High",
+    "Use for section switching.",
+  ],
+  [
+    "Pagination Example",
+    "Pagination control",
+    "Pagination",
+    "High",
+    "Use for page navigation.",
+  ],
+  [
+    "Alert Example",
+    "Alert message",
+    "Alert",
+    "High",
+    "Use for inline info/warning/success/error message.",
+  ],
+  [
+    "Notification Example",
+    "Notification display",
+    "Notification",
+    "High",
+    "Use for notification panel/message.",
+  ],
+  [
+    "Toast Example",
+    "Temporary feedback",
+    "Toast",
+    "High",
+    "Use for temporary feedback message.",
+  ],
+  [
+    "Tooltip Example",
+    "Hover hint",
+    "Tooltip",
+    "High",
+    "Use for contextual help hint.",
+  ],
+  [
+    "Modal Example",
+    "Dialog / popup",
+    "Modal",
+    "High",
+    "Use for overlay dialog preview.",
+  ],
+  [
+    "Upload Example",
+    "File upload / dropzone",
+    "Upload",
+    "High",
+    "Use for upload control preview.",
+  ],
+  [
+    "Collapse Example",
+    "Accordion / collapsible section",
+    "Collapse",
+    "High",
+    "Use for expandable content.",
+  ],
+  [
+    "Context Menu Example",
+    "Contextual action menu",
+    "ContextMenu",
+    "High",
+    "Use for contextual actions.",
+  ],
+  [
+    "Table Example",
+    "Simple data table",
+    "Table",
+    "High",
+    "Use for basic tabular display.",
+  ],
+  [
+    "Enterprise Grid Example",
+    "Complex data grid",
+    "AgGridTable",
+    "High",
+    "Use for sortable/filterable enterprise grid.",
+  ],
+  [
+    "Checkbox Dropdown Example",
+    "Multi-select dropdown",
+    "CheckboxDropdown",
+    "High",
+    "Use for checkbox-based multi-select dropdown.",
+  ],
+  [
+    "Utility Notification Hook",
+    "Notification hook",
+    "useNotification",
+    "High",
+    "Utility export only, not a visual component.",
+  ],
+  [
+    "Utility Notification Function",
+    "Notification function",
+    "notification",
+    "High",
+    "Utility export only, not a visual component.",
+  ],
+] as const;
 
 export function parseAiResponse(params: {
   responseText: string;
@@ -201,6 +469,7 @@ export function parseAllGeneratedFiles(params: {
       params.kazeComponentCatalog,
     ),
     params.kazeComponentCatalog,
+    params.parsedFilenames ?? [],
   );
   const finalValidation = validateFinalOutput({
     text: Object.values(sanitizedFiles).filter(Boolean).join("\n\n"),
@@ -278,6 +547,7 @@ function parseGeneratedResponse(params: {
   const sanitizedFiles = sanitizeParsedFiles(
     files,
     params.kazeComponentCatalog,
+    params.parsedFilenames ?? [],
   );
   const missingFiles = params.expectedFileNames.filter(
     (filename) => !sanitizedFiles[filename],
@@ -746,6 +1016,7 @@ function normalizeQaChecklistCheckboxes(lines: string[]): string[] {
 function sanitizeParsedFiles(
   files: Partial<Record<GeneratedFileName, string>>,
   kazeComponentCatalog: string,
+  parsedFilenames: ParsedFilenameContext[] = [],
 ): Partial<Record<GeneratedFileName, string>> {
   const missingFilenameRepairedFiles =
     repairMissingFilenamePlaceholdersInFiles(files);
@@ -770,7 +1041,7 @@ function sanitizeParsedFiles(
   };
 
   const filesWithoutLeftoverRows = removeScreenSpecificRows(
-    ensureComponentGalleryMappingContent(sanitizedFiles),
+    ensureComponentGalleryMappingContent(sanitizedFiles, parsedFilenames),
   );
 
   return repairKazeMappingSourceFilesFromManifest(filesWithoutLeftoverRows);
@@ -829,143 +1100,129 @@ function repairMissingFilenamePlaceholdersInFiles(
 
 function ensureComponentGalleryMappingContent(
   files: Partial<Record<GeneratedFileName, string>>,
+  parsedFilenames: ParsedFilenameContext[] = [],
 ): Partial<Record<GeneratedFileName, string>> {
   const manifest = files["pack-manifest.md"] ?? "";
   const mapping = files["kaze-component-mapping.md"] ?? "";
+  const filenameContext = parsedFilenames
+    .map((parsed) => `${parsed.filename} ${parsed.screenName ?? ""}`)
+    .join("\n");
+
+  if (!mapping) {
+    return files;
+  }
 
   if (
     !/Kaze Component Gallery|Kaze UI Components Gallery|UI Components Gallery|KazeComponentGallery/i.test(
-      `${manifest}\n${mapping}`,
+      `${manifest}\n${mapping}\n${filenameContext}`,
     )
   ) {
     return files;
   }
 
-  const mappingWithRequiredRows =
-    ensureComponentGalleryMainMappingRows(mapping);
-  const galleryExports = getVisualKazeExports();
-  const missingExports = galleryExports.filter(
-    (exportName) =>
-      !new RegExp(`\\b${escapeRegExp(exportName)}\\b`).test(
-        mappingWithRequiredRows,
-      ),
-  );
-  const utilityExports = ["notification", "useNotification"].filter(
-    (exportName) =>
-      !new RegExp(`\\b${escapeRegExp(exportName)}\\b`).test(
-        mappingWithRequiredRows,
-      ),
-  );
-
-  if (missingExports.length === 0 && utilityExports.length === 0) {
-    return {
-      ...files,
-      "kaze-component-mapping.md": mappingWithRequiredRows,
-    };
-  }
-
-  const appendix = [
-    "",
-    "## Component Gallery Coverage",
-    "",
-    "Visual Kaze exports visible or expected in this component gallery:",
-    ...missingExports.map((exportName) => `- \`${exportName}\``),
-    ...(utilityExports.length > 0
-      ? [
-          "",
-          "Utility exports shown for reference only, not visual components:",
-          ...utilityExports.map((exportName) => `- \`${exportName}\``),
-        ]
-      : []),
-  ].join("\n");
-
   return {
     ...files,
-    "kaze-component-mapping.md": `${mappingWithRequiredRows.trim()}\n${appendix}`,
+    "kaze-component-mapping.md": buildComponentGalleryMappingMarkdown(),
   };
 }
 
-function ensureComponentGalleryMainMappingRows(mapping: string): string {
-  const requiredRows = [
-    formatMarkdownTableRow([
-      "Enterprise Grid Preview",
-      "Enterprise data grid",
-      "AgGridTable",
-      "High",
-      "Complex enterprise table/grid pattern.",
-    ]),
-    formatMarkdownTableRow([
-      "Columns selected",
-      "Checkbox dropdown / column picker",
-      "CheckboxDropdown",
-      "High",
-      "Multi-select dropdown for table column selection.",
-    ]),
-    formatMarkdownTableRow([
-      "Status Lozenge",
-      "Compact status label",
-      "Lozenge",
-      "High",
-      "Status/state label pattern.",
-    ]),
-    formatMarkdownTableRow([
-      "Standard Mode Options",
-      "Radio group",
-      "RadioGroup",
-      "High",
-      "Grouped single-choice options.",
-    ]),
-    formatMarkdownTableRow([
-      "Notes / multi-line input",
-      "Multi-line text area",
-      "TextArea",
-      "High",
-      "Use TextArea for large or multi-line input areas, notes fields, descriptions, and comments.",
-    ]),
-  ];
-  const existingTable = readMarkdownSection(mapping, "Screen Mapping Table");
-  const missingRows = requiredRows.filter((row) => {
-    const exactExport = parseMarkdownTableRow(row)?.[2] ?? "";
-    return !new RegExp(
-      `\\|[^\\n]*\\|[^\\n]*\\|\\s*${escapeRegExp(exactExport)}\\s*\\|`,
-      "i",
-    ).test(existingTable);
-  });
-
-  if (missingRows.length === 0) {
-    return mapping;
-  }
-
-  const nextSectionIndex = findNextSectionIndexAfter(
-    mapping,
-    "Screen Mapping Table",
+function buildComponentGalleryMappingMarkdown(): string {
+  const confirmedExports = uniqueStrings(
+    COMPONENT_GALLERY_MAPPING_ROWS.map((row) => row[2]),
   );
-
-  if (nextSectionIndex >= 0) {
-    return `${mapping.slice(0, nextSectionIndex).trimEnd()}\n${missingRows.join("\n")}\n\n${mapping.slice(nextSectionIndex).trimStart()}`;
-  }
-
-  return `${mapping.trimEnd()}\n${missingRows.join("\n")}`;
-}
-
-function findNextSectionIndexAfter(
-  markdown: string,
-  sectionName: string,
-): number {
-  const sectionPattern = new RegExp(
-    `(?:^|\\n)## ${escapeRegExp(sectionName)}\\s*\\n`,
-    "i",
+  const visualExports = confirmedExports.filter(
+    (exportName) => !/^(?:notification|useNotification)$/.test(exportName),
   );
-  const sectionMatch = sectionPattern.exec(markdown);
+  const utilityExports = confirmedExports.filter((exportName) =>
+    /^(?:notification|useNotification)$/.test(exportName),
+  );
+  const forbiddenFakeNames = getForbiddenFakeNames();
 
-  if (!sectionMatch || sectionMatch.index === undefined) {
-    return -1;
-  }
-
-  const searchStart = sectionMatch.index + sectionMatch[0].length;
-  const nextSectionPattern = /\n## /g;
-  nextSectionPattern.lastIndex = searchStart;
-  return nextSectionPattern.exec(markdown)?.index ?? -1;
+  return [
+    "# Kaze Component Mapping",
+    "",
+    "## Source Files",
+    "- `screenshots/KazeComponentGallery_Default_Desktop.png`",
+    "",
+    "## Import Rule",
+    "",
+    "Use real unprefixed named exports from `@pcs-security/kaze-ui-library`.",
+    "",
+    "Correct:",
+    "```ts",
+    "import {",
+    "  Button,",
+    "  TextField,",
+    "  Dropdown,",
+    "  Avatar,",
+    "  Typography,",
+    '} from "@pcs-security/kaze-ui-library";',
+    "```",
+    "",
+    "Incorrect:",
+    "```ts",
+    "// WRONG - fake Kaze-prefixed exports do not exist",
+    "import {",
+    "  KazeButton,",
+    "  KazeInput,",
+    "  KazeSelect,",
+    "  KazeAvatar,",
+    "  KazeTypography,",
+    '} from "@pcs-security/kaze-ui-library";',
+    "```",
+    "",
+    "## Confirmed Kaze Exports Used",
+    "",
+    "Visual exports:",
+    ...visualExports.map((exportName) => `- \`${exportName}\``),
+    "",
+    "Utility exports referenced:",
+    ...utilityExports.map((exportName) => `- \`${exportName}\``),
+    "",
+    "## Forbidden Fake Names",
+    "",
+    "Do not use fake Kaze-prefixed exports:",
+    "",
+    ...forbiddenFakeNames.map((exportName) => `- \`${exportName}\``),
+    "",
+    `Primary fake aliases that must never be imported as valid exports: ${getPrimaryForbiddenFakeNames()
+      .map((exportName) => `\`${exportName}\``)
+      .join(", ")}.`,
+    "",
+    "## Fallback Rule",
+    "",
+    "Use `Unknown / verify from Kaze` only as a fallback label when no confirmed Kaze export exists.",
+    "Undocumented prop behavior should be verified against package typings or Storybook.",
+    "",
+    "Do not invent components such as `KazeCard`, `KazeSidebar`, `KazeIcon`, `KazeLayout`, `KazeBox`, or `KazeFlex`.",
+    "",
+    "## Icon Usage Rule",
+    "",
+    "There is no confirmed `Icon` export from `@pcs-security/kaze-ui-library`.",
+    "",
+    "If the screenshot shows icons:",
+    "- Use the existing project icon pattern if one exists.",
+    "- Use inline SVG only if the project has no icon pattern.",
+    "- Do not install a new icon library.",
+    "- Do not assume any specific icon library unless the project already confirms one.",
+    "- Do not invent `KazeIcon`.",
+    "",
+    "## Component Gallery Coverage",
+    "",
+    "Visual Kaze exports are covered in the mapping table above.",
+    "",
+    "Utility exports shown for reference only, not visual components:",
+    "- `notification`",
+    "- `useNotification`",
+    "",
+    "## Screen Mapping Table",
+    "",
+    "| UI Element | Intended Kaze Pattern | Exact Kaze Export | Confidence | Notes |",
+    "| :--- | :--- | :--- | :--- | :--- |",
+    ...COMPONENT_GALLERY_MAPPING_ROWS.map((row) =>
+      formatMarkdownTableRow([...row]),
+    ),
+  ].join("\n");
 }
 
 function repairKazeMappingSourceFilesFromManifest(
@@ -1280,6 +1537,9 @@ function sanitizeHandoffContent(
     return handoff;
   }
 
+  const strongIconHandoffLine =
+    "Icons use the existing project icon pattern if available; otherwise use inline SVG fallback. Do not assume or install any icon library. There is no confirmed Kaze `Icon` export.";
+
   const sanitizedHandoff = normalizeComponentGalleryExportCountText(handoff)
     .replace(
       /Background is pure black\s*\(#000000\)\.?/gi,
@@ -1291,7 +1551,23 @@ function sanitizeHandoffContent(
     )
     .replace(
       /Specific icon library icons for the sidebar and quick actions\s*\([^)]*plus[^)]*microphone[^)]*image[^)]*pen[^)]*globe[^)]*\)\.?/gi,
-      "Specific icon library names should be verified against the project icon setup.",
+      strongIconHandoffLine,
+    )
+    .replace(
+      /Icons?:\s*Use inline SVG or project icon system;?\s*no confirmed Kaze ["`]?Icon["`]? export exists\.?/gi,
+      strongIconHandoffLine,
+    )
+    .replace(
+      /Icons?:\s*Use inline SVG or project icon set\.?/gi,
+      strongIconHandoffLine,
+    )
+    .replace(
+      /Icons?\s+use\s+the existing project icon pattern or inline SVG fallback\.?/gi,
+      strongIconHandoffLine,
+    )
+    .replace(
+      /No confirmed Kaze ["`]?Icon["`]? export;?\s*use inline SVG fallbacks? for icons\.?/gi,
+      strongIconHandoffLine,
     )
     .replace(
       /Select a mode from the dropdown selector\.?/gi,
@@ -1334,6 +1610,14 @@ function sanitizeKazeComponentMappingContent(
 
   const cleanedMapping = unknownRepaired
     .replace(/Exact Kaze Component/gi, "Exact Kaze Export")
+    .replace(
+      /There is no confirmed\s+`Unknown \/ verify from Kaze`\s+export\.?/gi,
+      "Use `Unknown / verify from Kaze` only as a fallback label when no confirmed Kaze export exists.",
+    )
+    .replace(
+      /Unknown \/ verify from Kaze\s+for any undocumented prop behaviou?rs?\.?/gi,
+      "Undocumented prop behavior should be verified against package typings or Storybook.",
+    )
     .replace(
       /^(\s*[-*]\s*)?Do not use fake Kaze-prefixed names\s*\((?:e\.g\.|for example),?\s*Button\)\.?\s*$/gim,
       "- Do not use fake Kaze-prefixed names such as KazeButton, KazeInput, KazeSelect, KazeAvatar, or KazeTypography.",
@@ -2103,6 +2387,70 @@ function validateFinalOutput(
         );
       }
     });
+
+    const galleryMapping = params.files["kaze-component-mapping.md"] ?? "";
+    const galleryLeakPatterns: Array<{ label: string; pattern: RegExp }> = [
+      { label: "Enterprise AI Assistant", pattern: /Enterprise AI Assistant/i },
+      {
+        label: "Project / feature screen",
+        pattern: /Project\s*\/\s*feature screen/i,
+      },
+      { label: "Project Input", pattern: /Project Input/i },
+      { label: "Screen type", pattern: /Screen type/i },
+      { label: "Screen Type Selector", pattern: /Screen Type Selector/i },
+      { label: "Additional notes", pattern: /Additional notes/i },
+      { label: "Notes Field", pattern: /Notes Field/i },
+      { label: "Fast Mode", pattern: /Fast Mode/i },
+      { label: "Fast/Standard Group", pattern: /Fast\/Standard Group/i },
+      { label: "On-prem", pattern: /On-prem/i },
+      { label: "Screen Pack Generator", pattern: /Screen Pack Generator/i },
+    ];
+    const iconInternalRows: Array<{ label: string; pattern: RegExp }> = [
+      { label: "Arrow Down (Dropdown)", pattern: /Arrow Down \(Dropdown\)/i },
+      {
+        label: "Checkmark (Checkbox)",
+        pattern: /Checkmark \(Checkbox\)/i,
+      },
+      { label: "Radio Circle (Radio)", pattern: /Radio Circle \(Radio\)/i },
+      { label: "Toggle Knob", pattern: /Toggle Knob/i },
+      { label: "Navigation Arrows", pattern: /Navigation Arrows/i },
+    ];
+
+    galleryLeakPatterns.forEach(({ label, pattern }) => {
+      if (pattern.test(galleryMapping)) {
+        addFailure(
+          `kaze-component-mapping.md contains component gallery template leakage: ${label}.`,
+        );
+      }
+    });
+
+    iconInternalRows.forEach(({ label, pattern }) => {
+      if (pattern.test(galleryMapping)) {
+        addFailure(
+          `kaze-component-mapping.md maps icon internals as component rows: ${label}.`,
+        );
+      }
+    });
+
+    if (
+      /confirmed\s+`Unknown \/ verify from Kaze`\s+export|no confirmed\s+`Unknown \/ verify from Kaze`\s+export/i.test(
+        galleryMapping,
+      )
+    ) {
+      addFailure(
+        "kaze-component-mapping.md treats Unknown / verify from Kaze as an export instead of a fallback label.",
+      );
+    }
+
+    if (
+      /Visual Kaze exports visible or expected[\s\S]*-\s*`Pills`/i.test(
+        galleryMapping,
+      )
+    ) {
+      addFailure(
+        "kaze-component-mapping.md contains weak component gallery coverage instead of the deterministic coverage section.",
+      );
+    }
   }
 
   // Check for hardcoded icon library names

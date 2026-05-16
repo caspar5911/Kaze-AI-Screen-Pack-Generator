@@ -233,6 +233,26 @@ const fakeKazeImportPattern =
   /import\\s*{\\s*[^}]*\\b(?:KazeButton|KazeInput|KazeSelect|KazeAvatar|KazeTypography)\\b[^}]*}\\s*from\\s*["']@pcs-security\\/kaze-ui-library["']/i;
 const wrongMarkerPattern =
   /WRONG|Incorrect|do not use|fake Kaze-prefixed|invalid|do not import/i;
+const galleryLeakPatterns = [
+  /Enterprise AI Assistant/i,
+  /Project\\s*\\/\\s*feature screen/i,
+  /Screen type/i,
+  /Additional notes/i,
+  /Fast Mode/i,
+  /On-prem/i,
+  /Screen Pack Generator/i,
+];
+const iconInternalRows = [
+  /Arrow Down \\(Dropdown\\)/i,
+  /Checkmark \\(Checkbox\\)/i,
+  /Radio Circle \\(Radio\\)/i,
+  /Toggle Knob/i,
+  /Navigation Arrows/i,
+];
+const badUnknownExportPattern =
+  /confirmed\\s+[\\x60]?Unknown \\/ verify from Kaze[\\x60]?\\s+export|no confirmed\\s+[\\x60]?Unknown \\/ verify from Kaze[\\x60]?\\s+export/i;
+const weakCoveragePattern =
+  /Visual Kaze exports visible or expected[\\s\\S]*-\\s*[\\x60]?Pills[\\x60]?/i;
 
 const forbiddenPatterns = [
   {
@@ -377,6 +397,49 @@ for (const markdownFile of markdownFiles) {
         \`\${markdownFile}: Fake Kaze-prefixed import appears without being clearly marked as wrong.\`
       );
     }
+  }
+}
+
+const manifestContent = fs.existsSync(path.join(root, "pack-manifest.md"))
+  ? fs.readFileSync(path.join(root, "pack-manifest.md"), "utf8")
+  : "";
+const mappingContent = fs.existsSync(path.join(root, "kaze-component-mapping.md"))
+  ? fs.readFileSync(path.join(root, "kaze-component-mapping.md"), "utf8")
+  : "";
+const isComponentGalleryPack =
+  /Kaze Component Gallery|Kaze UI Components Gallery|UI Components Gallery|KazeComponentGallery/i.test(
+    \`\${manifestContent}\\n\${mappingContent}\`
+  );
+
+if (isComponentGalleryPack && mappingContent) {
+  for (const pattern of galleryLeakPatterns) {
+    if (pattern.test(mappingContent)) {
+      errors.push(
+        "kaze-component-mapping.md contains component gallery template leakage."
+      );
+      break;
+    }
+  }
+
+  for (const pattern of iconInternalRows) {
+    if (pattern.test(mappingContent)) {
+      errors.push(
+        "kaze-component-mapping.md maps icon internals as component rows."
+      );
+      break;
+    }
+  }
+
+  if (badUnknownExportPattern.test(mappingContent)) {
+    errors.push(
+      "kaze-component-mapping.md treats Unknown / verify from Kaze as an export instead of a fallback label."
+    );
+  }
+
+  if (weakCoveragePattern.test(mappingContent)) {
+    errors.push(
+      "kaze-component-mapping.md contains weak component gallery coverage instead of the deterministic coverage section."
+    );
   }
 }
 

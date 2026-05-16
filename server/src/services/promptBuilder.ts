@@ -282,7 +282,7 @@ pack-manifest.md must NOT include:
 - Implementation instructions
 
 Output rules:
-- Output only the file section. No reasoning, analysis, citations, or commentary.
+- Output only the file section. No private reasoning, citations, or commentary.
 
 --- File: pack-manifest.md ---
 
@@ -358,6 +358,9 @@ handoff.md must be concise and include: Overview, Screenshots, Visible layout, M
 - Do not describe implementation steps.
 
 kaze-component-mapping.md must be concise and include: Source files, Import Rule, Confirmed Kaze Exports Used, Forbidden Fake Names, Fallback Rule, Screen mapping table, Icon table, Confidence levels.
+- Do not generate a separate Icon table.
+- Do not map internal icons such as arrows, checkmarks, radio circles, toggle knobs, or close icons as separate Kaze components.
+- For icons, use the Icon Usage Rule only.
 - Only include mapping rows for visible UI elements.
 - Keep notes short.
 - Do not add speculative rows for unseen behaviours.
@@ -531,7 +534,7 @@ qa-checklist.md rules:
 qa-checklist.md must include: Visual checks, Functional checks, Kaze compliance checks, Code quality checks, Accessibility checks.
 
 Output rules:
-- Output only the two file sections. No reasoning, analysis, citations, or commentary.
+- Output only the two file sections. No private reasoning, citations, or commentary.
 - Keep each file concise. Do not repeat full prior files or catalog JSON in the output.
 
 --- File: cline-implementation-prompt.md ---

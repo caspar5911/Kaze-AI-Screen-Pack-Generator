@@ -98,6 +98,10 @@ const testParsedFilenames = [
 ];
 const testAllowedFilenames = ["KazeComponentGallery_Default_Desktop.png"];
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function parseGeneratedFilesForTest(fileOverrides = {}) {
   const files = {
     ...baseFiles,
@@ -254,7 +258,26 @@ const aiAuthoredBadMapping = [
   "|---|---|---|---|---|",
   "| Generate / Preview Buttons | Clickable action / Primary button | Button | High | Real unprefixed export. |",
   "| Columns selected | Dropdown | Dropdown | High | Table configuration control. |",
+  "| Project / feature screen | Text input | TextField | High | Generator UI leak. |",
+  "| Screen type | Dropdown | Dropdown | High | Generator UI leak. |",
+  "| Fast Mode | Checkbox | Checkbox | High | Generator UI leak. |",
+  "| On-prem Switch | Toggle | Toggle | High | Generator UI leak. |",
   "| Sidebar Nav | Unknown / verify from Kaze | Unknown / verify from Kaze | Low | Verify project pattern. |",
+  "",
+  "## Icon Table",
+  "",
+  "| Icon Element | Component Pattern | Exact Kaze Export | Confidence | Notes |",
+  "|---|---|---|---|---|",
+  "| Arrow Down (Dropdown) | Icon internal | Dropdown | Low | Do not map this separately. |",
+  "| Checkmark (Checkbox) | Icon internal | Checkbox | Low | Do not map this separately. |",
+  "",
+  "There is no confirmed `Unknown / verify from Kaze` export.",
+  "Unknown / verify from Kaze for any undocumented prop behaviors.",
+  "",
+  "## Component Gallery Coverage",
+  "",
+  "Visual Kaze exports visible or expected in this component gallery:",
+  "- `Pills`",
 ].join("\n");
 const repairedBadMappingResult = parseGeneratedFilesForTest({
   "kaze-component-mapping.md": aiAuthoredBadMapping,
@@ -290,20 +313,99 @@ assert.doesNotMatch(
 );
 assert.match(
   repairedBadMapping,
-  /\| Columns selected \| Checkbox dropdown \/ column picker \| CheckboxDropdown \| High \| Multi-select dropdown for table column selection\. \|/,
+  /\| Checkbox Dropdown Example \| Multi-select dropdown \| CheckboxDropdown \| High \| Use for checkbox-based multi-select dropdown\. \|/,
 );
 assert.match(
   repairedBadMapping,
-  /\| Enterprise Grid Preview \| Enterprise data grid \| AgGridTable \| High \| Complex enterprise table\/grid pattern\. \|/,
+  /\| Enterprise Grid Example \| Complex data grid \| AgGridTable \| High \| Use for sortable\/filterable enterprise grid\. \|/,
 );
 assert.match(
   repairedBadMapping,
-  /\| Status Lozenge \| Compact status label \| Lozenge \| High \| Status\/state label pattern\. \|/,
+  /\| Lozenge Example \| Status label \| Lozenge \| High \| Use for compact status\/state label\. \|/,
 );
 assert.match(
   repairedBadMapping,
-  /\| Standard Mode Options \| Radio group \| RadioGroup \| High \| Grouped single-choice options\. \|/,
+  /\| Radio Group Example \| Grouped radio options \| RadioGroup \| High \| Use for single-choice grouped options\. \|/,
 );
+assert.doesNotMatch(
+  repairedBadMapping,
+  /Project \/ feature screen|Screen type|Fast Mode|On-prem|Screen Pack Generator|Enterprise AI Assistant/i,
+  "component gallery mapping must not keep generator-specific rows",
+);
+assert.doesNotMatch(
+  repairedBadMapping,
+  /## Icon Table|Arrow Down \(Dropdown\)|Checkmark \(Checkbox\)|Radio Circle \(Radio\)|Toggle Knob|Navigation Arrows/i,
+  "component gallery mapping must not map icon internals as rows",
+);
+assert.doesNotMatch(
+  repairedBadMapping,
+  /no confirmed\s+`Unknown \/ verify from Kaze`\s+export|There is no confirmed\s+`Unknown \/ verify from Kaze`\s+export/i,
+);
+assert.doesNotMatch(
+  repairedBadMapping,
+  /Visual Kaze exports visible or expected/i,
+);
+assert.match(repairedBadMapping, /## Icon Usage Rule/);
+assert.match(
+  repairedBadMapping,
+  /Use `Unknown \/ verify from Kaze` only as a fallback label when no confirmed Kaze export exists\./,
+);
+assert.match(
+  repairedBadMapping,
+  /Undocumented prop behavior should be verified against package typings or Storybook\./,
+);
+assert.match(
+  repairedBadMapping,
+  /Visual Kaze exports are covered in the mapping table above\./,
+);
+
+[
+  ["Heading / Body Text", "Typography"],
+  ["Button Examples", "Button"],
+  ["Avatar Example", "Avatar"],
+  ["Badge Example", "Badge"],
+  ["Text Input Example", "TextField"],
+  ["Text Area Example", "TextArea"],
+  ["Dropdown Example", "Dropdown"],
+  ["Date Input Example", "Datepicker"],
+  ["Time Input Example", "Timepicker"],
+  ["Checkbox Example", "Checkbox"],
+  ["Radio Example", "Radio"],
+  ["Radio Group Example", "RadioGroup"],
+  ["Toggle Example", "Toggle"],
+  ["Segmented Example", "Segmented"],
+  ["Slider Example", "Slider"],
+  ["Tag Example", "Tag"],
+  ["Lozenge Example", "Lozenge"],
+  ["Pills Example", "Pills"],
+  ["Swatch Example", "Swatch"],
+  ["Progress Example", "Progress"],
+  ["Steps Example", "Steps"],
+  ["Breadcrumb Example", "Breadcrumb"],
+  ["Tabs Example", "Tabs"],
+  ["Pagination Example", "Pagination"],
+  ["Alert Example", "Alert"],
+  ["Notification Example", "Notification"],
+  ["Toast Example", "Toast"],
+  ["Tooltip Example", "Tooltip"],
+  ["Modal Example", "Modal"],
+  ["Upload Example", "Upload"],
+  ["Collapse Example", "Collapse"],
+  ["Context Menu Example", "ContextMenu"],
+  ["Table Example", "Table"],
+  ["Enterprise Grid Example", "AgGridTable"],
+  ["Checkbox Dropdown Example", "CheckboxDropdown"],
+  ["Utility Notification Hook", "useNotification"],
+  ["Utility Notification Function", "notification"],
+].forEach(([label, exactExport]) => {
+  assert.match(
+    repairedBadMapping,
+    new RegExp(
+      `\\| ${escapeRegExp(label)} \\| [^|]+ \\| ${escapeRegExp(exactExport)} \\| High \\|`,
+    ),
+    `${label} must be rendered in deterministic gallery mapping`,
+  );
+});
 
 const countNormalizedResult = parseGeneratedFilesForTest({
   "handoff.md": [
