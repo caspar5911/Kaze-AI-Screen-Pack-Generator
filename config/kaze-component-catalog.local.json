@@ -2085,8 +2085,8 @@
                                     "Invents route paths, backend APIs, authentication logic, permissions, or database logic."
                                 ],
     "notes":  [
-                  "Swatch is exported as ColourSwatch as Swatch internally.",
-                  "TextArea is exported as TextAreaField as TextArea internally.",
+                  "Public import must use Swatch; ColourSwatch is an internal/source declaration name only.",
+                  "Public import must use TextArea; TextAreaField is an internal/source declaration name only.",
                   "notification and useNotification are utility/hook exports, not visual components."
               ]
 }

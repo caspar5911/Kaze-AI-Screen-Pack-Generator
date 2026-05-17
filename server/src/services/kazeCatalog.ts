@@ -54,6 +54,8 @@ export const VALID_EXPORTS_THAT_MUST_NOT_BE_FORBIDDEN = [
   "Dropdown",
   "Avatar",
   "Typography",
+  "TextArea",
+  "Swatch",
 ];
 
 const PRIMARY_FAKE_NAMES = [
@@ -63,6 +65,7 @@ const PRIMARY_FAKE_NAMES = [
   "KazeAvatar",
   "KazeTypography",
 ];
+const INVALID_INTERNAL_IMPORT_NAMES = ["TextAreaField", "ColourSwatch"];
 
 let cachedCatalog: KazeCatalog | null = null;
 
@@ -229,24 +232,40 @@ export function validateFakeKazeImportsInContent(
 ): string | null {
   const fakeKazeImportPattern =
     /import\s*{\s*[^}]*\b(?:KazeButton|KazeInput|KazeSelect|KazeAvatar|KazeTypography)\b[^}]*}\s*from\s*["']@pcs-security\/kaze-ui-library["']/i;
+  const invalidInternalImportPattern =
+    /import\s*{\s*[^}]*\b(?:TextAreaField|ColourSwatch)\b[^}]*}\s*from\s*["']@pcs-security\/kaze-ui-library["']/i;
   const wrongMarkerPattern =
     /WRONG|Incorrect|do not use|fake Kaze-prefixed|invalid|do not import/i;
   const fakeImportIndex = content.search(fakeKazeImportPattern);
 
-  if (fakeImportIndex < 0) {
+  if (fakeImportIndex >= 0) {
+    const contextWindow = content.slice(
+      Math.max(0, fakeImportIndex - 300),
+      fakeImportIndex + 500,
+    );
+
+    if (wrongMarkerPattern.test(contextWindow)) {
+      return null;
+    }
+
+    return `${filename}: Fake Kaze-prefixed import appears without being clearly marked as wrong.`;
+  }
+
+  const invalidImportIndex = content.search(invalidInternalImportPattern);
+  if (invalidImportIndex < 0) {
     return null;
   }
 
   const contextWindow = content.slice(
-    Math.max(0, fakeImportIndex - 300),
-    fakeImportIndex + 500,
+    Math.max(0, invalidImportIndex - 300),
+    invalidImportIndex + 500,
   );
 
   if (wrongMarkerPattern.test(contextWindow)) {
     return null;
   }
 
-  return `${filename}: Fake Kaze-prefixed import appears without being clearly marked as wrong.`;
+  return `${filename}: Internal Kaze import appears as a valid import; use public exports TextArea and Swatch instead of ${INVALID_INTERNAL_IMPORT_NAMES.join(" or ")}.`;
 }
 
 export function isConfirmedKazeExport(name: string): boolean {

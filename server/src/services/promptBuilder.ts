@@ -267,6 +267,57 @@ function readMarkdownSection(markdown: string, sectionName: string): string {
   return markdown.match(pattern)?.[1]?.trim().replace(/\s+/g, " ") ?? "";
 }
 
+function buildScreenFolderNameFromPackContext(
+  packInputMarkdown: string,
+  fileMapText: string,
+): string {
+  const fields: PackInputFields = {
+    projectName: readMarkdownSection(packInputMarkdown, "Project / Feature Name"),
+    shortDescription: readMarkdownSection(packInputMarkdown, "Short Description"),
+    designSource: readMarkdownSection(packInputMarkdown, "Design Source"),
+    iconSystem: readMarkdownSection(packInputMarkdown, "Icon System"),
+    additionalNotes: readMarkdownSection(packInputMarkdown, "Additional Notes"),
+  };
+  const filenames = [...fileMapText.matchAll(/^\s*\d+\.\s+(.+?)\s+=/gm)].map(
+    (match) => match[1],
+  );
+
+  return buildScreenFolderNameFromFieldsAndFilenames(fields, filenames);
+}
+
+function buildScreenFolderNameFromFieldsAndFilenames(
+  fields: PackInputFields,
+  filenames: string[],
+): string {
+  const filenameContext = filenames.join(" ");
+  const firstScreenName =
+    filenames[0]?.replace(/\.[^.]+$/, "").split("_")[0]?.trim() ?? "";
+
+  if (
+    isComponentGalleryText(
+      `${fields.projectName} ${fields.shortDescription} ${filenameContext}`,
+    )
+  ) {
+    return "UIComponentsGallery";
+  }
+
+  const source = fields.projectName.trim() || firstScreenName || "GeneratedScreen";
+
+  return toPascalIdentifier(source) || "GeneratedScreen";
+}
+
+function getTargetPlacementPaths(screenFolderName: string): {
+  componentPath: string;
+  cssPath: string;
+  entrypointPath: string;
+} {
+  return {
+    componentPath: `src/pages/${screenFolderName}/${screenFolderName}.tsx`,
+    cssPath: `src/pages/${screenFolderName}/${screenFolderName}.css`,
+    entrypointPath: "src/main.tsx",
+  };
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -336,6 +387,33 @@ export function buildHandoffMappingPrompt(params: {
   const confirmedExports = getConfirmedKazeExports().join(", ");
   const forbiddenFakeNames = getForbiddenFakeNames().join(", ");
   const unconfirmedPatterns = (catalog.unconfirmedPatterns ?? []).join(", ");
+  const screenFolderName = buildScreenFolderNameFromPackContext(
+    params.packInputMarkdown,
+    params.fileMapText,
+  );
+  const targetPaths = getTargetPlacementPaths(screenFolderName);
+  const isComponentGallery = isComponentGalleryText(
+    `${packContext} ${params.fileMapText}`,
+  );
+  const componentGallerySectionOrder = isComponentGallery
+    ? [
+        "If this is the Kaze component gallery screenshot, use this Required Section Order exactly:",
+        "1. Typography",
+        "2. Buttons",
+        "3. Avatar + Badge",
+        "4. Inputs",
+        "5. Selection",
+        "6. Segmented + Slider",
+        "7. Labels",
+        "8. Progress + Steps",
+        "9. Navigation",
+        "10. Feedback",
+        "11. Upload",
+        "12. Collapse + Context",
+        "13. Tables",
+        "14. Utility Exports",
+      ].join("\n")
+    : "Required Section Order must list visible regions/sections in exact top-to-bottom, left-to-right order from the screenshot.";
 
   return `You are a Kaze UI Handoff and Component Mapping Generator.
 
@@ -353,13 +431,30 @@ Kaze export rules:
 - Forbidden fake names: ${forbiddenFakeNames}
 - Unconfirmed patterns: ${unconfirmedPatterns}
 - Use only exports listed in the provided Kaze catalog JSON.
+- Use public export names only: TextArea, not TextAreaField; Swatch, not ColourSwatch.
+- Do not rely on internal declaration names from generated typings.
 - Do not use catalog entries marked pending or aiReady=false.
 - Use componentDetectionRules, patternMappings, and mandatoryMappingRules from the catalog as source of truth.
 - List visible UI elements and generic visual roles first.
 - Do not invent Kaze component names.
 - If a visual role matches the catalog mapping dictionary, use the exact confirmed Kaze export.
+- Do not assume AntD subcomponent APIs exist through Kaze, such as Table.Row, Table.Cell, Steps.Step, Tabs.TabPane, Dropdown.Option, or Select.Option, unless installed Kaze typings or existing project usage confirms them.
 
 For unconfirmed patterns, output: Unknown / verify from Kaze
+
+Target placement for handoff.md:
+- Implement this screen in \`${targetPaths.componentPath}\`.
+- React structure belongs in \`${targetPaths.componentPath}\`.
+- CSS/layout styling belongs in \`${targetPaths.cssPath}\`.
+- \`${targetPaths.entrypointPath}\` may be edited only for Kaze CSS/theme imports if missing.
+- Existing blank, placeholder, sidebar, or scaffold-only output in the allowed target files should be replaced when it does not match the screenshot.
+- Do not rewrite unrelated files. This means stay inside the allowed target files; it does not mean preserving a wrong layout.
+
+Screenshot structure authority:
+- The target screenshot is the source of truth for visible page structure.
+- If the current implementation is blank, scaffold-only, placeholder-only, or structurally different from the target screenshot, the allowed page component/CSS may be rewritten.
+- Do not preserve sidebar, toolbar, footer, modal, table, card, or empty-state scaffolding unless visible in the target screenshot.
+- Avoid generic landing-page assumptions unless the screenshot is actually a landing page.
 
 Unknown cell fallback rule:
 - When a Kaze export is marked as "Unknown / verify from Kaze", the Notes column MUST include a concrete fallback specification.
@@ -378,6 +473,11 @@ Visual accuracy:
 - Write "Dark themed background. Follow Kaze/project tokens." instead of #000000.
 - Label estimated spacing as "approximate visual estimate".
 - Icons use the existing project icon pattern if available; otherwise use inline SVG fallback. Do not assume or install any icon library. There is no confirmed Kaze \`Icon\` export.
+- Describe visible top-level regions in order, such as header, sidebar, toolbar, content area, cards, table, form, footer, modal, or empty state.
+- Describe major density, background, border, typography, and visual hierarchy requirements from the screenshot.
+- State what should not appear if it is absent from the screenshot.
+
+${componentGallerySectionOrder}
 
 State rules for landing screens:
 - Default: shown
@@ -387,13 +487,25 @@ State rules for landing screens:
 - Error: TODO unless submit action confirmed
 - Disabled: TODO unless required
 
-handoff.md must be concise and include: Overview, Screenshots, Visible layout, Main actions, Visual notes, Required states, Unknowns.
-- Keep each section to 3-6 bullets.
-- Keep the whole file under roughly 80 lines.
+handoff.md must be concise and include these sections:
+- Overview
+- Screenshots
+- Target Placement
+- Screenshot Structure Authority
+- Required Visual Structure
+- Required Content and Section Order
+- Confirmed Public Kaze Exports
+- Layout Implementation Rules
+- Visual Requirements
+- Main Actions and States
+- Unknowns
+- Validation Requirements
+- Keep each section to 3-6 bullets where practical.
+- Keep the whole file under roughly 120 lines.
 - Do not repeat the manifest.
-- Do not describe implementation steps.
+- Do not describe broad implementation steps beyond placement, allowed files, and validation.
 
-kaze-component-mapping.md must be concise and include: Source files, Import Rule, Confirmed Kaze Exports Used, Forbidden Fake Names, Fallback Rule, Screen mapping table, Icon table, Confidence levels.
+kaze-component-mapping.md must be concise and include: Source files, Import Rule, Confirmed Public Kaze Exports, Confirmed Kaze Exports Used, Forbidden Fake Names, Layout Fallback Rule, Screen mapping table, Confidence levels.
 - Do not generate a separate Icon table.
 - Do not map internal icons such as arrows, checkmarks, radio circles, toggle knobs, or close icons as separate Kaze components.
 - For icons, use the Icon Usage Rule only.
@@ -402,13 +514,23 @@ kaze-component-mapping.md must be concise and include: Source files, Import Rule
 - Do not add speculative rows for unseen behaviours.
 - State that Button, TextField, and Dropdown are real unprefixed exports.
 - State that fake Kaze-prefixed names such as KazeButton, KazeInput, KazeSelect, KazeAvatar, and KazeTypography are wrong.
+- State that TextAreaField and ColourSwatch are internal/invalid import names; use TextArea and Swatch.
 - Include the correct import example using Button, TextField, Dropdown, Avatar, and Typography.
 - Include the wrong fake-prefixed import example and clearly mark it WRONG.
 - Never list Button, TextField, Dropdown, Avatar, or Typography under Forbidden Names.
 - If you include a Forbidden Names line, it must only forbid fake Kaze-prefixed names such as KazeButton, KazeInput, KazeSelect, KazeAvatar, and KazeTypography.
 
 Mapping table columns:
-| UI Element | Intended Kaze Pattern | Exact Kaze Export | Confidence | Notes |
+| Visual Element | Intended Role | Exact Kaze Export or HTML/CSS | Confidence | Required Visible Text/State | Confirmed Prop Guidance | Fallback if API Uncertain |
+
+For each visible UI element, document:
+- visual element name
+- intended role
+- recommended Kaze component or plain HTML/CSS
+- confidence level
+- required visible text/state
+- known prop guidance if confirmed
+- fallback if the Kaze API is uncertain
 
 Visual Element To Kaze Component Mapping (strict mapping dictionary):
 
@@ -459,6 +581,12 @@ Hard rules for Kaze component detection:
 5. Do not call a button a generic "action control" only — if the screenshot has a clickable action, you must mention Button.
 6. Do not call an input a generic "prompt area" only — if the screenshot has a text input, you must mention TextField or TextArea.
 
+Layout implementation rules:
+- Use plain HTML/CSS for page shell, cards, grid, spacing, and wrappers.
+- Do not invent Kaze layout exports such as KazeCard, KazeLayout, KazeFlex, or KazeBox.
+- Use Kaze components only for actual UI controls and display elements.
+- If an export or prop is uncertain, verify against installed package typings or existing project usage.
+- If still uncertain, use a simpler confirmed component or plain HTML/CSS wrapper instead of inventing an API.
 
 CRITICAL: Never output bare "Unknown" by itself. Always write "Unknown / verify from Kaze" as a single token. If you are unsure about a Kaze component, use "Unknown / verify from Kaze" - never just "Unknown". This applies to ALL mapping table cells and ALL notes fields.
 
@@ -525,7 +653,7 @@ Before writing code:
 Kaze import rule:
 Correct:
 \`\`\`ts
-import { Button, TextField, Dropdown, Avatar, Typography } from "@pcs-security/kaze-ui-library";
+import { Button, TextField, Dropdown, Avatar, Typography, TextArea, Swatch } from "@pcs-security/kaze-ui-library";
 \`\`\`
 
 Incorrect:
@@ -544,12 +672,23 @@ Implementation rules:
 - Use confirmed Kaze exports where available.
 - Do not use raw input/button/select/table/modal/form controls if Kaze equivalents exist.
 - Use raw HTML only for non-interactive layout wrappers.
+- Use plain HTML/CSS for page shell, cards, grid, spacing, and layout wrappers unless a Kaze layout export is explicitly confirmed.
 - Do not use Ant Design directly if Kaze wraps it.
+- Do not assume AntD subcomponent APIs exist through Kaze, such as Table.Row, Table.Cell, Steps.Step, Tabs.TabPane, Dropdown.Option, or Select.Option, unless the installed Kaze package or existing project usage confirms them.
+- Use TextArea, not TextAreaField.
+- Use Swatch, not ColourSwatch.
 - Do not invent routes, APIs, dropdown values, or permission rules.
 - Mark unknown behaviour as TODO.
-- Run typecheck/build if available.
+- Run npm run build after edits.
 - Report unresolved unknowns and fallback choices.
 - Write "Dark mode using existing Kaze/project tokens or styles."
+
+Target placement and screenshot authority:
+- Use the Target Placement section in handoff.md as the allowed file list.
+- The target screenshot is the source of truth for visible page structure.
+- If current files are blank, scaffold-only, placeholder-only, or structurally different, rewrite the allowed page component/CSS to match the screenshot.
+- Do not preserve unrelated scaffolding that is absent from the screenshot.
+- Do not edit outside the configured allowed files.
 
 Fallback rule:
 If a Kaze export is not verified:
@@ -571,8 +710,12 @@ qa-checklist.md rules:
 - Every item uses checkbox format: "- [ ] ...".
 - Write "is implemented or marked as TODO." instead of assuming it works.
 - Write "matches the screenshot and existing Kaze/project typography pattern." instead of "matches typography specs".
+- Include screenshot-specific visual checks from handoff.md.
+- Include checks that the page is not blank or placeholder-only unless the target screenshot is an empty state.
+- Include checks that invalid Kaze names such as TextAreaField or ColourSwatch are not imported.
+- Include checks that npm run build was run.
 
-qa-checklist.md must include: Visual checks, Functional checks, Kaze compliance checks, Code quality checks, Accessibility checks.
+qa-checklist.md must include: Visual checks, Functional checks, Kaze compliance checks, Implementation safety checks, Validation requirements, Code quality checks, Accessibility checks.
 
 Output rules:
 - Output only the two file sections. No private reasoning, citations, or commentary.
@@ -603,6 +746,7 @@ export function buildLocalClineImplementationPrompt(params?: {
   const screenFolderName =
     params?.screenFolderName ??
     buildScreenFolderName(params?.fields, params?.fileMapEntries ?? []);
+  const targetPaths = getTargetPlacementPaths(screenFolderName);
 
   return [
     "# Cline Implementation Prompt",
@@ -633,7 +777,7 @@ export function buildLocalClineImplementationPrompt(params?: {
     "Correct:",
     "",
     "```ts",
-    'import { Button, TextField, Dropdown, Avatar, Typography } from "@pcs-security/kaze-ui-library";',
+    'import { Button, TextField, Dropdown, Avatar, Typography, TextArea, Swatch } from "@pcs-security/kaze-ui-library";',
     "```",
     "",
     "Incorrect:",
@@ -657,50 +801,60 @@ export function buildLocalClineImplementationPrompt(params?: {
     "- Use `qa-checklist.md` for validation.",
     "- Use confirmed Kaze exports where available.",
     "- Do not use raw input/button/select/table/modal/form controls if Kaze equivalents exist.",
+    "- Use plain HTML/CSS for page shell, cards, grid, spacing, and layout wrappers unless a Kaze layout export is explicitly confirmed.",
     "- Use raw HTML only for non-interactive layout wrappers.",
     "- Do not use Ant Design directly if Kaze wraps it.",
+    "- Do not assume AntD subcomponent APIs exist through Kaze, such as `Table.Row`, `Table.Cell`, `Steps.Step`, `Tabs.TabPane`, `Dropdown.Option`, or `Select.Option`, unless installed Kaze typings or existing project usage confirms them.",
+    "- Use `TextArea`, not `TextAreaField`.",
+    "- Use `Swatch`, not `ColourSwatch`.",
     "- Do not invent routes.",
     "- Do not invent APIs.",
     "- Do not invent dropdown values.",
     "- Do not invent permission rules.",
     "- Mark unknown behaviour as TODO.",
-    "- Run typecheck/build if available.",
+    "- Run `npm run build` after edits.",
     "- Report unresolved unknowns and fallback choices.",
     "",
-    "## Placement Rule",
+    "## Target Placement",
     "",
-    "Before creating files, inspect the actual project structure.",
+    "Before creating files, inspect the actual project structure and then stay inside these allowed files unless the user explicitly expands scope.",
     "",
-    "Use the generated screen folder name:",
+    "Allowed implementation files:",
     "",
-    `\`${screenFolderName}\``,
+    `- React structure: \`${targetPaths.componentPath}\``,
+    `- CSS/layout styling: \`${targetPaths.cssPath}\``,
+    `- App entrypoint: \`${targetPaths.entrypointPath}\` only for Kaze CSS/theme imports if missing.`,
     "",
-    "Place the screen in the closest existing page or screen directory pattern.",
+    "- The screen should replace an existing empty, placeholder, sidebar, or scaffold-only implementation in these target files when that scaffold is absent from the screenshot.",
+    "- Do not preserve a wrong layout just because it already exists.",
+    "- Do not register a route or invent route paths unless explicitly requested.",
     "",
-    "Priority:",
+    "## Screenshot Structure Authority",
     "",
-    `1. If the project has \`src/pages/\`, create \`src/pages/${screenFolderName}/\`.`,
-    `2. If the project has \`src/screens/\`, create \`src/screens/${screenFolderName}/\`.`,
-    "3. If the project has `src/features/`, create it under the closest relevant feature folder.",
-    `4. If none of these exist, create \`src/pages/${screenFolderName}/\`.`,
-    "",
-    "Do not register a route unless:",
-    "- the project already has an obvious route registration pattern, and",
-    "- route registration is explicitly requested.",
-    "",
-    "Do not invent route paths.",
-    "",
-    "## Screenshot Usage Rule",
-    "",
-    "The screenshot is a visual reference only.",
+    "The target screenshot is the source of truth for visible page structure.",
     "",
     "Use it to match:",
     "- layout",
+    "- top-level page shell",
+    "- primary regions and their order",
     "- spacing",
+    "- density",
+    "- background and borders",
     "- visual hierarchy",
     "- text placement",
     "- component choice",
     "- approximate responsive behaviour",
+    "",
+    "If the current implementation is blank, scaffold-only, placeholder-only, or structurally different from the screenshot, rewrite the allowed page component/CSS to match the screenshot.",
+    "",
+    "Do not preserve unless visible in the screenshot:",
+    "- sidebar",
+    "- toolbar",
+    "- footer",
+    "- modal",
+    "- table",
+    "- card grid",
+    "- existing empty-state scaffold",
     "",
     "Do not infer:",
     "- backend APIs",
@@ -712,6 +866,14 @@ export function buildLocalClineImplementationPrompt(params?: {
     "- production business rules",
     "",
     "If the screenshot contains unclear behaviour, implement only static frontend behaviour unless explicitly specified in `handoff.md`.",
+    "",
+    "## Validation Requirements",
+    "",
+    "- Run `npm run build` after edits.",
+    "- The final page must not remain blank or placeholder-only unless the target screenshot is an empty state.",
+    "- The final page must not preserve unrelated scaffolding that is absent from the target screenshot.",
+    "- The implementation must not import invalid Kaze names such as `TextAreaField` or `ColourSwatch`.",
+    "- The implementation must not edit outside the configured allowed files.",
     "",
     "## Implementation Sequence",
     "",
@@ -726,7 +888,7 @@ export function buildLocalClineImplementationPrompt(params?: {
     "9. Use only real Kaze exports.",
     "10. Match the screenshot visually.",
     "11. Avoid inventing APIs, routes, or backend calls.",
-    "12. Run typecheck/build if available.",
+    "12. Run `npm run build`.",
     "13. Report changed files and any assumptions.",
     "",
     "## Anti-Hallucination Rules",
@@ -773,7 +935,7 @@ export function buildLocalClineImplementationPrompt(params?: {
     "",
     "If the project already imports Kaze CSS globally, do not duplicate the import.",
     "",
-    "If no global Kaze CSS import exists, report this as an assumption instead of blindly changing global files.",
+    `If no global Kaze CSS import exists, use \`${targetPaths.entrypointPath}\` only for Kaze CSS/theme imports and report the change.`,
     "",
     "## Fallback Rule",
     "",
@@ -918,6 +1080,10 @@ function isComponentGalleryContext(
     ),
   ].join(" ");
 
+  return isComponentGalleryText(context);
+}
+
+function isComponentGalleryText(context: string): boolean {
   return /component\s*gallery|components\s*gallery|kaze\s*component|kaze\s*ui\s*components/i.test(
     context,
   );
@@ -939,13 +1105,10 @@ export function buildScreenFolderName(
     return "UIComponentsGallery";
   }
 
-  const source =
-    fallbackFields.projectName.trim() ||
-    entries[0]?.parsed.screenName?.trim() ||
-    entries[0]?.filename.replace(/\.[^.]+$/, "") ||
-    "GeneratedScreen";
-
-  return toPascalIdentifier(source) || "GeneratedScreen";
+  return buildScreenFolderNameFromFieldsAndFilenames(
+    fallbackFields,
+    entries.map((entry) => entry.filename),
+  );
 }
 
 function toPascalIdentifier(value: string): string {
@@ -962,7 +1125,46 @@ function toPascalIdentifier(value: string): string {
     .join("");
 }
 
-export function buildLocalQaChecklist(): string {
+function buildScreenshotSpecificVisualChecks(params?: {
+  fields?: PackInputFields;
+  fileMapEntries?: FileMapEntry[];
+}): string[] {
+  const fields = params?.fields ?? {
+    projectName: "",
+    shortDescription: "",
+    designSource: "",
+    iconSystem: "",
+    additionalNotes: "",
+  };
+  const entries = params?.fileMapEntries ?? [];
+
+  if (isComponentGalleryContext(fields, "", entries)) {
+    return [
+      "- [ ] Full-page Kaze component gallery structure matches the screenshot.",
+      '- [ ] Header includes visible "Kaze UI Library" title and Kaze version note if shown in the screenshot.',
+      "- [ ] No sidebar is preserved unless it appears in the screenshot.",
+      "- [ ] Responsive component category card grid fills the desktop viewport similarly to the screenshot.",
+      "- [ ] Tables section spans the wider content area.",
+      "- [ ] Utility Exports section appears after visual component sections.",
+      "- [ ] Required section order matches handoff.md: Typography, Buttons, Avatar + Badge, Inputs, Selection, Segmented + Slider, Labels, Progress + Steps, Navigation, Feedback, Upload, Collapse + Context, Tables, Utility Exports.",
+    ];
+  }
+
+  return [
+    "- [ ] Top-level page shell matches the screenshot.",
+    "- [ ] Primary regions appear in the same order as `handoff.md`.",
+    "- [ ] Elements absent from the screenshot are not preserved from unrelated scaffolding.",
+    "- [ ] Desktop/mobile assumptions match the uploaded screenshot set.",
+  ];
+}
+
+export function buildLocalQaChecklist(params?: {
+  fields?: PackInputFields;
+  fileMapEntries?: FileMapEntry[];
+}): string {
+  const screenshotSpecificVisualChecks =
+    buildScreenshotSpecificVisualChecks(params);
+
   return [
     "# QA Checklist",
     "",
@@ -979,13 +1181,16 @@ export function buildLocalQaChecklist(): string {
     "",
     "## 2. Kaze Usage",
     "- [ ] Uses only real `@pcs-security/kaze-ui-library` exports.",
-    "- [ ] Allows valid unprefixed exports such as `Button`, `TextField`, `Dropdown`, `Avatar`, and `Typography`.",
+    "- [ ] Allows valid unprefixed exports such as `Button`, `TextField`, `Dropdown`, `Avatar`, `Typography`, `TextArea`, and `Swatch`.",
     "- [ ] Does not use fake Kaze-prefixed components such as `KazeButton`, `KazeInput`, `KazeSelect`, `KazeAvatar`, or `KazeTypography`.",
     "- [ ] Does not import `KazeButton`.",
     "- [ ] Does not import `KazeInput`.",
     "- [ ] Does not import `KazeSelect`.",
     "- [ ] Does not import `KazeAvatar`.",
     "- [ ] Does not import `KazeTypography`.",
+    "- [ ] Does not import `TextAreaField`; use `TextArea` instead.",
+    "- [ ] Does not import `ColourSwatch`; use `Swatch` instead.",
+    "- [ ] Does not rely on unverified Kaze subcomponent APIs such as `Table.Row`, `Table.Cell`, `Steps.Step`, `Tabs.TabPane`, `Dropdown.Option`, or `Select.Option`.",
     "- [ ] Does not install another UI library.",
     "- [ ] Does not bypass Kaze when a suitable Kaze component exists.",
     "",
@@ -997,6 +1202,8 @@ export function buildLocalQaChecklist(): string {
     "- [ ] Spacing is close to screenshot.",
     "- [ ] Typography hierarchy is close to screenshot.",
     "- [ ] Responsive behaviour does not break the layout.",
+    "- [ ] Final page is not blank or placeholder-only unless the target screenshot is an empty state.",
+    ...screenshotSpecificVisualChecks,
     "",
     "## 4. Implementation Safety",
     "- [ ] No fake backend APIs.",
@@ -1006,6 +1213,9 @@ export function buildLocalQaChecklist(): string {
     "- [ ] No unnecessary global CSS.",
     "- [ ] No unnecessary dependencies.",
     "- [ ] No broad project refactor.",
+    "- [ ] No edits outside the configured allowed files from `handoff.md`.",
+    "- [ ] Previous scaffold/sidebar/placeholder output is replaced when absent from the target screenshot.",
+    "- [ ] Plain HTML/CSS is used for page shell, cards, grid, spacing, and wrappers unless a Kaze layout export is verified.",
     "",
     "## 5. Code Quality",
     "- [ ] TypeScript compiles.",
@@ -1014,15 +1224,29 @@ export function buildLocalQaChecklist(): string {
     "- [ ] Component is isolated.",
     "- [ ] File placement follows existing project structure.",
     "- [ ] Build/typecheck/lint results are reported.",
+    "- [ ] `npm run build` was run after edits.",
     "",
-    "## 6. Final Response",
+    "## 6. Validation Requirements",
+    "- [ ] `npm run build` was run after edits.",
+    "- [ ] Build output has no invalid Kaze export errors.",
+    "- [ ] Page is not blank or placeholder-only unless the screenshot is an empty state.",
+    "- [ ] Previous unrelated scaffold absent from the screenshot is not preserved.",
+    "- [ ] Implementation stays inside the allowed files from `handoff.md`.",
+    "",
+    "## 7. Accessibility",
+    "- [ ] Visible controls have accessible names or labels.",
+    "- [ ] Keyboard focus remains visible for interactive controls.",
+    "- [ ] Static visual fidelity does not remove expected semantic structure.",
+    "- [ ] Unknown interactive behavior is implemented or marked as TODO.",
+    "",
+    "## 8. Final Response",
     "- [ ] Changed files are listed.",
     "- [ ] Kaze components used are listed.",
     "- [ ] Validation results are listed.",
     "- [ ] Assumptions are listed.",
     "- [ ] Fallbacks are listed.",
     "",
-    "## 7. Icon Usage",
+    "## 9. Icon Usage",
     "- [ ] Does not invent `KazeIcon`.",
     "- [ ] Does not assume a specific icon library without project confirmation.",
     "- [ ] Uses existing project icon pattern if available.",
@@ -1055,10 +1279,15 @@ Must NOT include: component names, tokens, CSS, px, routes, APIs, Storybook, imp
 State rules: do not label landing screens as Empty unless filename is Empty.
 
 Component rules: use exact confirmed exports only. For unconfirmed: Unknown / verify from Kaze.
+Use TextArea, not TextAreaField. Use Swatch, not ColourSwatch.
+Do not assume AntD subcomponent APIs such as Table.Row, Table.Cell, Steps.Step, Tabs.TabPane, Dropdown.Option, or Select.Option.
+Use plain HTML/CSS for page shell, cards, grid, spacing, and layout wrappers unless a Kaze layout export is explicitly confirmed.
 
 Visual rules: no exact px/hex/radius. Use "Dark themed background. Follow Kaze/project tokens."
 
-Cline prompt must include: ## Critical First Step, Inspect actual project structure.
+handoff.md must include: Target Placement, Screenshot Structure Authority, Required Visual Structure, Required Content and Section Order, Confirmed Public Kaze Exports, Layout Implementation Rules, Visual Requirements, Validation Requirements.
+
+Cline prompt must include: ## Critical First Step, Inspect actual project structure, Target Placement, Screenshot Structure Authority, Validation Requirements.
 
 QA wording: use "is implemented or marked as TODO." format.
 

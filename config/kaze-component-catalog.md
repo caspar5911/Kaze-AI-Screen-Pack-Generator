@@ -227,7 +227,7 @@ Correct:
 import { Swatch, TextArea } from "@pcs-security/kaze-ui-library";
 ```
 
-Do not import `ColourSwatch` or `TextAreaField` unless package typings later prove they are public exports.
+Do not import `ColourSwatch` or `TextAreaField`. They are internal/source declaration names, not the public component names used in generated implementation guidance.
 
 ---
 
@@ -1966,6 +1966,6 @@ The generated pack is not ready if:
 
 # Notes
 
-- Swatch is exported as ColourSwatch as Swatch internally.
-- TextArea is exported as TextAreaField as TextArea internally.
+- Public import must use Swatch; ColourSwatch is an internal/source declaration name only.
+- Public import must use TextArea; TextAreaField is an internal/source declaration name only.
 - notification and useNotification are utility/hook exports, not visual components.
