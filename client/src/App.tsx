@@ -1,13 +1,24 @@
 import { Loader2, Moon, Sparkles, Sun } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { requestAiAssist } from "./api/aiAssist";
 import { generatePack } from "./api/generatePack";
 import { listModels } from "./api/listModels";
 import { AdvancedSettingsCard } from "./components/AdvancedSettingsCard";
 import { OutputPanel } from "./components/OutputPanel";
 import { PackDetailsCard } from "./components/PackDetailsCard";
 import { ScreenshotUploadCard } from "./components/ScreenshotUploadCard";
-import type { GeneratePackResponse, PackFormState } from "./types";
-import { getFilenameWarnings } from "./utils/filenameParser";
+import type {
+  AiAssistResponse,
+  AiAssistTargetField,
+  GeneratePackResponse,
+  GenerationQuality,
+  GeneratedFiles,
+  PackFormState,
+} from "./types";
+import {
+  getFilenameWarnings,
+  parseScreenshotFilename,
+} from "./utils/filenameParser";
 
 const endpointStorageKey = "kaze-screen-pack-generator.aiEndpointUrl";
 const modelStorageKey = "kaze-screen-pack-generator.modelName";
@@ -19,15 +30,16 @@ const defaultForm: PackFormState = {
   projectName: "",
   shortDescription: "",
   designSource: "Screenshot export",
-  iconSystem: "Font Awesome",
+  iconSystem: "Project icon pattern or SVG fallback",
   additionalNotes: "",
   aiEndpointUrl: "http://localhost:11434/api/chat",
-  modelName: "qwen3.6:35b"
+  modelName: "qwen3.6:35b",
+  fastMode: false,
 };
 
 export default function App() {
   const [theme, setTheme] = useState<Theme>(() =>
-    window.localStorage.getItem(themeStorageKey) === "light" ? "light" : "dark"
+    window.localStorage.getItem(themeStorageKey) === "light" ? "light" : "dark",
   );
   const [form, setForm] = useState<PackFormState>(() => ({
     ...defaultForm,
@@ -35,27 +47,55 @@ export default function App() {
       window.localStorage.getItem(endpointStorageKey) ??
       defaultForm.aiEndpointUrl,
     modelName:
-      window.localStorage.getItem(modelStorageKey) ?? defaultForm.modelName
+      window.localStorage.getItem(modelStorageKey) ?? defaultForm.modelName,
   }));
   const [screenshots, setScreenshots] = useState<File[]>([]);
+  const [packScreenshots, setPackScreenshots] = useState<File[]>([]);
+  const [packProjectName, setPackProjectName] = useState("");
   const [response, setResponse] = useState<GeneratePackResponse | null>(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [modelListError, setModelListError] = useState("");
   const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState("");
+  const [aiAssistLoading, setAiAssistLoading] =
+    useState<AiAssistTargetField | null>(null);
+  const [aiAssistError, setAiAssistError] = useState("");
+  const generationProgressTimers = useRef<number[]>([]);
 
   const filenameWarnings = useMemo(
     () => getFilenameWarnings(screenshots),
-    [screenshots]
+    [screenshots],
   );
+
+  const parsedFilenames = useMemo(
+    () =>
+      packScreenshots.map((f) => {
+        const parsed = parseScreenshotFilename(f.name);
+        return {
+          filename: f.name,
+          screenName: parsed.screenName || "",
+          state: parsed.state || "",
+          viewport: parsed.viewport || "",
+        };
+      }),
+    [packScreenshots],
+  );
+
+  const allowedFilenames = useMemo(
+    () => packScreenshots.map((f) => f.name),
+    [packScreenshots],
+  );
+
   const canGenerate =
     form.projectName.trim().length > 0 &&
     form.shortDescription.trim().length > 0 &&
     form.aiEndpointUrl.trim().length > 0 &&
     form.modelName.trim().length > 0 &&
     screenshots.length > 0 &&
-    !isLoading;
+    !isLoading &&
+    aiAssistLoading === null;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -72,11 +112,102 @@ export default function App() {
     window.localStorage.setItem(modelStorageKey, form.modelName);
   }, [form.modelName]);
 
-  function updateForm(field: keyof PackFormState, value: string) {
+  useEffect(() => () => clearGenerationProgress(false), []);
+
+  function updateForm(field: keyof PackFormState, value: string | boolean) {
     setForm((current) => ({
       ...current,
-      [field]: value
+      [field]: value,
     }));
+  }
+
+  function updateScreenshots(files: File[]) {
+    setScreenshots(files);
+    if (
+      files.length > 0 &&
+      aiAssistError === "Upload at least one screenshot before using AI assist."
+    ) {
+      setAiAssistError("");
+    }
+  }
+
+  async function runAiAssist(targetField: AiAssistTargetField) {
+    if (screenshots.length === 0) {
+      setAiAssistError(
+        "Upload at least one screenshot before using AI assist.",
+      );
+      return;
+    }
+
+    if (!form.aiEndpointUrl.trim() || !form.modelName.trim()) {
+      setAiAssistError(
+        "AI endpoint URL and model name are required before using AI assist.",
+      );
+      return;
+    }
+
+    if (aiAssistLoading) {
+      return;
+    }
+
+    setAiAssistLoading(targetField);
+    setAiAssistError("");
+
+    try {
+      const result = await requestAiAssist({
+        screenshots,
+        currentValues: {
+          screenName: form.projectName,
+          shortDescription: form.shortDescription,
+          additionalNotes: form.additionalNotes,
+        },
+        targetField,
+        aiEndpointUrl: form.aiEndpointUrl,
+        modelName: form.modelName,
+      });
+
+      applyAiAssistResult(targetField, result);
+    } catch (caught) {
+      setAiAssistError(
+        caught instanceof Error
+          ? caught.message
+          : "AI assist failed. Check the on-prem model endpoint and try again.",
+      );
+    } finally {
+      setAiAssistLoading(null);
+    }
+  }
+
+  function applyAiAssistResult(
+    targetField: AiAssistTargetField,
+    result: AiAssistResponse,
+  ) {
+    setForm((current) => {
+      const next = { ...current };
+
+      if (
+        (targetField === "screenName" || targetField === "all") &&
+        result.screenName?.trim()
+      ) {
+        next.projectName = result.screenName.trim();
+      }
+
+      if (
+        (targetField === "shortDescription" || targetField === "all") &&
+        result.shortDescription?.trim()
+      ) {
+        next.shortDescription = result.shortDescription.trim();
+      }
+
+      if (
+        (targetField === "additionalNotes" || targetField === "all") &&
+        result.additionalNotes?.trim()
+      ) {
+        next.additionalNotes = result.additionalNotes.trim();
+      }
+
+      return next;
+    });
   }
 
   async function submit(event?: FormEvent<HTMLFormElement>) {
@@ -87,14 +218,42 @@ export default function App() {
 
     setIsLoading(true);
     setError("");
+    setResponse(null);
+    startGenerationProgress();
 
     try {
       const payload = await generatePack(form, screenshots);
       setResponse(payload);
+      setPackScreenshots([...screenshots]);
+      setPackProjectName(form.projectName);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Generation failed.");
     } finally {
+      clearGenerationProgress(true);
       setIsLoading(false);
+    }
+  }
+
+  function startGenerationProgress() {
+    clearGenerationProgress(true);
+    const progressSteps = [
+      { delay: 0, label: "Generating..." },
+      { delay: 5000, label: "Analyzing screenshots..." },
+      { delay: 15000, label: "Building pack files..." },
+    ];
+
+    generationProgressTimers.current = progressSteps.map((step) =>
+      window.setTimeout(() => setGenerationProgress(step.label), step.delay),
+    );
+  }
+
+  function clearGenerationProgress(resetLabel: boolean) {
+    generationProgressTimers.current.forEach((timer) =>
+      window.clearTimeout(timer),
+    );
+    generationProgressTimers.current = [];
+    if (resetLabel) {
+      setGenerationProgress("");
     }
   }
 
@@ -122,11 +281,26 @@ export default function App() {
     } catch (caught) {
       setAvailableModels([]);
       setModelListError(
-        caught instanceof Error ? caught.message : "Could not load models."
+        caught instanceof Error ? caught.message : "Could not load models.",
       );
     } finally {
       setIsLoadingModels(false);
     }
+  }
+
+  // Callback for OutputTabs to update the pack after resolving unknowns
+  function handlePackUpdated(update: {
+    files: GeneratedFiles;
+    warnings: string[];
+    quality: GenerationQuality;
+  }) {
+    if (!response) return;
+    setResponse({
+      ...response,
+      files: update.files,
+      warnings: update.warnings,
+      quality: update.quality,
+    });
   }
 
   return (
@@ -145,7 +319,7 @@ export default function App() {
           type="button"
           onClick={() =>
             setTheme((currentTheme) =>
-              currentTheme === "dark" ? "light" : "dark"
+              currentTheme === "dark" ? "light" : "dark",
             )
           }
           aria-label={
@@ -166,7 +340,14 @@ export default function App() {
 
       <main className="workspace">
         <form className="input-column" onSubmit={submit}>
-          <PackDetailsCard form={form} onChange={updateForm} />
+          <PackDetailsCard
+            form={form}
+            aiAssistLoading={aiAssistLoading}
+            aiAssistError={aiAssistError}
+            isAiAssistDisabled={isLoading || aiAssistLoading !== null}
+            onAiAssist={runAiAssist}
+            onChange={updateForm}
+          />
           <AdvancedSettingsCard
             form={form}
             availableModels={availableModels}
@@ -182,13 +363,19 @@ export default function App() {
             </div>
           )}
 
-          <button className="primary-button" type="submit" disabled={!canGenerate}>
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={!canGenerate}
+          >
             {isLoading ? (
               <Loader2 className="spin" aria-hidden="true" size={18} />
             ) : (
               <Sparkles aria-hidden="true" size={18} />
             )}
-            {isLoading ? "Generating..." : "Generate Implementation Pack"}
+            {isLoading
+              ? generationProgress || "Generating..."
+              : "Generate Implementation Pack"}
           </button>
         </form>
 
@@ -196,13 +383,19 @@ export default function App() {
           <ScreenshotUploadCard
             screenshots={screenshots}
             warnings={filenameWarnings}
-            onChange={setScreenshots}
+            onChange={updateScreenshots}
           />
           <OutputPanel
             response={response}
-            projectName={form.projectName}
+            projectName={packProjectName || form.projectName}
+            screenshots={packScreenshots}
             isLoading={isLoading}
             onRegenerate={() => submit()}
+            aiEndpointUrl={form.aiEndpointUrl}
+            modelName={form.modelName}
+            onPackUpdated={handlePackUpdated}
+            allowedFilenames={allowedFilenames}
+            parsedFilenames={parsedFilenames}
           />
         </div>
       </main>

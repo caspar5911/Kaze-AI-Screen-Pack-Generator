@@ -1,36 +1,99 @@
-import type { PackFormState } from "../types";
+import type {
+  AiAssistLoadingState,
+  AiAssistTargetField,
+  PackFormState,
+} from "../types";
 
 interface PackDetailsCardProps {
   form: PackFormState;
-  onChange: (field: keyof PackFormState, value: string) => void;
+  aiAssistLoading: AiAssistLoadingState;
+  aiAssistError: string;
+  isAiAssistDisabled: boolean;
+  onAiAssist: (targetField: AiAssistTargetField) => void;
+  onChange: (field: keyof PackFormState, value: string | boolean) => void;
 }
 
-export function PackDetailsCard({ form, onChange }: PackDetailsCardProps) {
+export function PackDetailsCard({
+  form,
+  aiAssistLoading,
+  aiAssistError,
+  isAiAssistDisabled,
+  onAiAssist,
+  onChange,
+}: PackDetailsCardProps) {
   return (
     <section className="card" aria-labelledby="pack-details-heading">
-      <h2 id="pack-details-heading">Pack Details</h2>
+      <div className="card-heading-row">
+        <div>
+          <h2 id="pack-details-heading">Pack Details</h2>
+          <p className="section-hint">
+            Manual edits stay in control. AI assist only runs when clicked.
+          </p>
+        </div>
+        <button
+          className="ai-assist-button"
+          type="button"
+          disabled={isAiAssistDisabled}
+          onClick={() => onAiAssist("all")}
+        >
+          {aiAssistLoading === "all"
+            ? "Auto-filling..."
+            : "Auto-fill from screenshots"}
+        </button>
+      </div>
 
-      <label className="field">
-        <span>Project / Feature Name</span>
+      {aiAssistError && (
+        <div className="ai-assist-error" role="alert">
+          {aiAssistError}
+        </div>
+      )}
+
+      <div className="field">
+        <div className="field-header">
+          <label htmlFor="project-name">Project / Feature Screen</label>
+          <button
+            className="ai-assist-button"
+            type="button"
+            disabled={isAiAssistDisabled}
+            onClick={() => onAiAssist("screenName")}
+          >
+            {aiAssistLoading === "screenName" ? "Auto-filling..." : "Auto-fill"}
+          </button>
+        </div>
         <input
+          id="project-name"
           value={form.projectName}
           onChange={(event) => onChange("projectName", event.target.value)}
           placeholder="AI Assistant Home Screen"
           required
         />
-      </label>
+      </div>
 
-      <label className="field">
-        <span>Short Description</span>
+      <div className="field">
+        <div className="field-header">
+          <label htmlFor="short-description">Short Description</label>
+          <button
+            className="ai-assist-button"
+            type="button"
+            disabled={isAiAssistDisabled}
+            onClick={() => onAiAssist("shortDescription")}
+          >
+            {aiAssistLoading === "shortDescription" ? "Improving..." : "Improve"}
+          </button>
+        </div>
         <textarea
+          id="short-description"
           value={form.shortDescription}
           onChange={(event) => onChange("shortDescription", event.target.value)}
           placeholder="Default landing screen where users can type a prompt, add attachments, select thinking mode, use voice input, and choose quick actions."
           rows={5}
           required
         />
-        <small>Keep this short. The AI will infer layout and actions from the screenshots.</small>
-      </label>
+        <small>
+          Keep this short. The generator will infer layout and actions from the
+          screenshots.
+        </small>
+      </div>
 
       <div className="field-grid">
         <label className="field">
@@ -59,15 +122,26 @@ export function PackDetailsCard({ form, onChange }: PackDetailsCardProps) {
         </label>
       </div>
 
-      <label className="field">
-        <span>Additional Notes</span>
+      <div className="field">
+        <div className="field-header">
+          <label htmlFor="additional-notes">Additional Notes</label>
+          <button
+            className="ai-assist-button"
+            type="button"
+            disabled={isAiAssistDisabled}
+            onClick={() => onAiAssist("additionalNotes")}
+          >
+            {aiAssistLoading === "additionalNotes" ? "Improving..." : "Improve"}
+          </button>
+        </div>
         <textarea
+          id="additional-notes"
           value={form.additionalNotes}
           onChange={(event) => onChange("additionalNotes", event.target.value)}
           placeholder="Use standard Kaze states unless custom states are shown."
           rows={3}
         />
-      </label>
+      </div>
     </section>
   );
 }

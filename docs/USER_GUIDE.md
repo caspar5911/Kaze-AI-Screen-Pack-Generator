@@ -57,12 +57,24 @@ Example:
 Use standard Kaze states unless custom states are shown.
 ```
 
+## Screenshot-Based AI Assist
+
+After uploading at least one screenshot, you can use:
+
+- Auto-fill from screenshots: fills or improves Project / Feature Name, Short Description, and Additional Notes together.
+- Auto-fill beside Project / Feature Name: suggests a concise screen name.
+- Improve beside Short Description: writes a short professional one-sentence description.
+- Improve beside Additional Notes: writes practical visual implementation notes.
+
+AI assist only runs when you click a button. It uses the configured on-prem/local AI endpoint and uploaded screenshots as visual reference. Review and edit the text before generating the pack.
+
 ### Advanced AI Settings
 
 These are usually set once and left alone.
 
 - AI Endpoint URL: On-prem Ollama or OpenAI-compatible endpoint.
 - Model Name: Vision-capable model served by that endpoint.
+- Fast Mode: optional compact prompt mode. It defaults off.
 
 ## Screenshot Naming Convention
 
@@ -178,7 +190,9 @@ Human-readable implementation handoff:
 
 ### kaze-component-mapping.md
 
-Mapping between visible UI patterns and confirmed Kaze components.
+Mapping between visible UI patterns and confirmed Kaze exports.
+
+The real package uses unprefixed named exports from `@pcs-security/kaze-ui-library`, such as `Button`, `TextField`, `Dropdown`, `Avatar`, and `Typography`. Fake prefixed names such as `KazeButton`, `KazeInput`, `KazeSelect`, `KazeAvatar`, and `KazeTypography` should not appear in the final pack.
 
 Unconfirmed patterns are marked:
 
@@ -188,7 +202,7 @@ Unknown / verify from Kaze
 
 ### cline-implementation-prompt.md
 
-Prompt for Cline/Codex or another coding agent. It tells the agent to inspect the actual project before coding and verify Kaze components, props, routes, APIs, and build steps.
+Prompt for Cline/Codex or another coding agent. It tells the agent to inspect the actual project before coding and verify Kaze exports, props, routes, APIs, and build steps.
 
 ### qa-checklist.md
 
@@ -202,7 +216,7 @@ Common examples:
 
 - Filename does not match the expected format.
 - AI invented a filename.
-- AI invented an unconfirmed `Kaze*` component.
+- AI invented a fake `Kaze*` prefixed name.
 - Manifest included details that belong elsewhere.
 - QA wording assumed behavior that has not been confirmed.
 - AI returned reasoning or `<details>` blocks.
@@ -219,5 +233,9 @@ Warnings do not always mean the pack is unusable. Review the generated files bef
 6. Review Generation Warnings.
 7. Open each output tab.
 8. Confirm filenames, screen names, and states are correct.
-9. Copy all files or download the ZIP.
+9. Copy all files or download the Cline-ready ZIP.
 10. Give the pack to the developer or coding agent.
+
+The ZIP includes the original uploaded screenshots in `screenshots/`, a
+deterministic `README_FOR_CLINE.md`, `validate-pack.mjs`,
+`cline-readiness-standard.md`, and the five generated markdown files.

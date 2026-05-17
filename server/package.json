@@ -10,10 +10,12 @@
     "test:run": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@types/sharp": "^0.31.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "multer": "^2.0.2"
+    "multer": "^2.0.2",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

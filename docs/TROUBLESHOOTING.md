@@ -35,13 +35,18 @@ Fix:
 - Ensure the prompt includes the File Map.
 - Regenerate.
 
-The sanitizer replaces filenames not present in the File Map with `Filename not in File Map`.
+The sanitizer replaces invented mobile/tablet screenshot references with
+`Mobile/tablet layouts are not provided.` and replaces other invented screenshot
+references with `Screenshot not provided in uploaded File Map.`.
 
-## AI invents Kaze components
+## AI invents fake Kaze-prefixed names
 
 Examples:
 
 ```text
+KazeButton
+KazeInput
+KazeSelect
 KazeSidebar
 KazeAvatar
 KazePromptBar
@@ -49,15 +54,24 @@ KazePromptBar
 
 Cause:
 
-- The model guessed Kaze component names based on visible UI patterns.
+- The model guessed Kaze-prefixed names based on visible UI patterns.
+- The real package uses unprefixed exports from `@pcs-security/kaze-ui-library` v3.1.8.
 
 Fix:
 
-- Update `config/kaze-component-catalog.md` only if the component is truly verified.
+- Update the remote catalog JSON and `config/kaze-component-catalog.local.json` only if the export is truly verified.
 - Keep unconfirmed patterns as `Unknown / verify from Kaze`.
 - Regenerate.
 
-The sanitizer replaces unconfirmed `Kaze*` names with `Unknown / verify from Kaze`.
+Known deterministic repairs:
+
+- `KazeButton` -> `Button`
+- `KazeInput` -> `TextField`
+- `KazeSelect` -> `Dropdown`
+- `KazeAvatar` -> `Avatar`
+- `KazeTypography` -> `Typography`
+
+Unconfirmed fake names such as `KazeSidebar`, `KazeCard`, `KazeLayout`, and `KazePromptBar` are replaced with `Unknown / verify from Kaze`.
 
 ## Manifest includes token, spacing, route, or API details
 
@@ -172,8 +186,16 @@ Expected endpoint style:
 http://internal-ai-server:8000/v1/chat/completions
 ```
 
+For vLLM, this app also accepts the base URL:
+
+```text
+http://internal-ai-server:8000/v1
+```
+
 Common fixes:
 
+- If the server returns `404 Not Found`, confirm the request is reaching the
+  OpenAI-compatible `/v1/chat/completions` route.
 - Confirm the endpoint supports chat completions.
 - Confirm it accepts image content in OpenAI-compatible format.
 - Confirm the model name is valid.

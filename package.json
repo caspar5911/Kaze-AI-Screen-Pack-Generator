@@ -7,12 +7,15 @@
     "server"
   ],
   "scripts": {
-    "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
+    "dev": "concurrently --kill-others --kill-signal SIGINT --kill-timeout 3000 --names server,client \"npm:dev:server\" \"npm:dev:client\"",
     "dev:client": "npm run dev --workspace client",
     "dev:server": "npm run dev --workspace server",
+    "dev:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-dev.ps1",
     "build": "npm run build --workspace server && npm run build --workspace client",
     "start": "npm run start --workspace server",
-    "test:run": "npm run test:run --workspace server && npm run test:run --workspace client"
+    "test:run": "npm run test:run --workspace server && npm run test:run --workspace client && npm run test:generator",
+    "test:generator": "tsx scripts/test-pack-generator.mjs",
+    "catalog:validate": "node scripts/validate-kaze-catalog.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

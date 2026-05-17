@@ -2,6 +2,8 @@
 
 This guide explains how the Kaze Screen Pack Generator is structured and where to update core behavior.
 
+For a narrative walkthrough of the full browser-to-ZIP path, see [End-To-End Flow](END_TO_END_FLOW.md).
+
 ## Frontend Architecture
 
 Frontend code lives in:
@@ -13,9 +15,10 @@ client/src
 Main entry points:
 
 - `App.tsx`: Overall state, theme, form data, screenshots, generation submit, model loading.
+- `api/aiAssist.ts`: Sends screenshot-based AI assist requests to `POST /api/ai-assist`.
 - `api/generatePack.ts`: Sends `multipart/form-data` to `POST /api/generate-pack`.
 - `api/listModels.ts`: Calls `GET /api/models`.
-- `components/PackDetailsCard.tsx`: Project details form.
+- `components/PackDetailsCard.tsx`: Project details form and button-triggered AI assist actions.
 - `components/ScreenshotUploadCard.tsx`: Upload area, file list, filename warnings, File Map Preview.
 - `components/AdvancedSettingsCard.tsx`: Endpoint/model settings and model dropdown.
 - `components/OutputPanel.tsx`: Empty state and generated output container.
@@ -40,16 +43,50 @@ server/src
 Main entry points:
 
 - `index.ts`: Express app, CORS, API routes, static client hosting after build.
+- `routes/aiAssist.ts`: `POST /api/ai-assist`.
 - `routes/generatePack.ts`: `POST /api/generate-pack`.
 - `routes/models.ts`: `GET /api/models`.
 - `services/fileMap.ts`: Builds File Map from uploaded files.
 - `services/promptBuilder.ts`: Builds `pack-input.md` and AI prompt.
 - `services/aiClient.ts`: Calls Ollama or OpenAI-compatible endpoint.
+- `services/aiAssist.ts`: Builds strict AI assist prompts and parses JSON responses.
+- `services/kazeCatalog.ts`: Uses the loaded Kaze catalog, with `config/kaze-component-catalog.local.json` as the legacy local fallback, and centralizes confirmed exports, fake-name repairs, role-to-export mapping, and cross-file Kaze validation.
 - `services/responseParser.ts`: Parses, sanitizes, validates, and scores AI output.
 - `services/modelDiscovery.ts`: Lists available models for supported endpoint styles.
 - `utils/filenameParser.ts`: Screenshot filename parsing and image extension checks.
 
-## API Endpoint
+## API Endpoints
+
+### POST /api/ai-assist
+
+Consumes:
+
+```text
+multipart/form-data
+```
+
+Fields:
+
+- `aiEndpointUrl`
+- `modelName`
+- `targetField`: `screenName`, `shortDescription`, `additionalNotes`, or `all`
+- `screenName`
+- `shortDescription`
+- `additionalNotes`
+- `screenshots`
+
+Returns:
+
+```json
+{
+  "screenName": "AI Assistant Home Screen",
+  "shortDescription": "Home screen for an AI assistant interface with a greeting section, prompt input area, and quick action shortcuts.",
+  "additionalNotes": "Match the centered greeting layout, rounded prompt input container, shortcut action buttons, and clean spacing."
+}
+```
+
+The route uses the configured on-prem/local AI endpoint through `aiClient.ts`.
+It does not log base64 image data or full AI responses.
 
 ### POST /api/generate-pack
 
@@ -85,7 +122,7 @@ Returns:
   "rawResponse": "...",
   "quality": {
     "status": "ready",
-    "label": "10/10 Ready",
+    "label": "Pack Ready",
     "score": 10,
     "issues": []
   }
@@ -169,16 +206,48 @@ server/src/services/promptBuilder.ts
 
 The backend builds `pack-input.md` internally from form fields, uploaded screenshots, parsed screenshot names, and File Map text. It is not written to disk.
 
+## Kaze Package Catalog
+
+The generator targets:
+
+```text
+@pcs-security/kaze-ui-library v3.1.8
+```
+
+The package uses unprefixed named exports. Use `Button`, `TextField`, `Dropdown`, `Avatar`, and `Typography`, not `KazeButton`, `KazeInput`, `KazeSelect`, `KazeAvatar`, or `KazeTypography`.
+
+Source files:
+
+```text
+config/kaze-component-catalog.md
+config/kaze-component-catalog.local.json
+```
+
+The Markdown catalog is injected into model prompts. The JSON catalog is for deterministic sanitizer and validator logic, including:
+
+- `confirmedExports`
+- `patternMappings`
+- `forbiddenFakeNames`
+- `wrongNameRepairs`
+
+When package exports change, update both catalog files together.
+
 ## AI Prompt Construction
 
-`buildAiPrompt` combines:
+Prompt construction uses the 3-stage generation pipeline in `promptBuilder.ts`:
 
-- Generated `pack-input.md`
-- `config/kaze-component-catalog.md`
+- Stage 1: generate `pack-manifest.md` locally from form fields, File Map, and parsed filenames.
+- Stage 2: call the vision model to generate `handoff.md` and `kaze-component-mapping.md` using the sanitized manifest.
+- Stage 3: call the text model path to generate `cline-implementation-prompt.md` and `qa-checklist.md` using sanitized previous outputs.
+
+Prompts include:
+
+- Compact pack context from generated `pack-input.md`
+- Compact catalog JSON from the loaded Kaze catalog, falling back to `config/kaze-component-catalog.local.json`
 - File Map
 - Strict output and safety rules
 
-The prompt tells the model to return exactly five markdown files separated by file markers.
+The Stage 2 mapping table uses `Exact Kaze Export`, and that column may contain only one confirmed export from the catalog or `Unknown / verify from Kaze`.
 
 ## AI Endpoint Handling
 
@@ -191,7 +260,13 @@ server/src/services/aiClient.ts
 Supported endpoint styles:
 
 - Ollama: endpoint path ends with `/api/chat`
-- OpenAI-compatible: all other endpoint URLs are treated as chat completions style
+- OpenAI-compatible exact chat endpoint: `/v1/chat/completions`
+- OpenAI-compatible base endpoint: `/v1`, normalized to `/v1/chat/completions`
+- OpenAI-compatible host root: normalized to `/v1/chat/completions`
+
+Model discovery derives the matching models endpoint. For OpenAI-compatible
+servers, `/v1` and host root resolve to `/v1/models`, while
+`/v1/chat/completions` resolves to `/v1/models`.
 
 Ollama payload:
 
@@ -254,11 +329,18 @@ The sanitizer repairs common unsafe AI output:
 - Removes reasoning blocks and outer markdown fences.
 - Repairs screen headings to use ScreenName only.
 - Replaces unsafe state labels like `Default / Empty`.
-- Replaces unconfirmed `Kaze*` components with `Unknown / verify from Kaze`.
-- Replaces invented filenames with `Filename not in File Map`.
+- Repairs known fake `Kaze*` names to real exports when deterministic, for example `KazeButton` to `Button`, `KazeInput` to `TextField`, and `KazeSelect` to `Dropdown`.
+- Replaces unconfirmed fake `Kaze*` names with `Unknown / verify from Kaze`.
+- Replaces invented mobile/tablet filenames with `Mobile/tablet layouts are not provided.`.
+- Replaces other invented filenames with `Screenshot not provided in uploaded File Map.`.
 - Cleans `pack-manifest.md` so implementation details do not leak into the manifest.
+- Repairs manifest visible-action placeholders into concrete action bullets where deterministic.
 - Moves unknown manifest bullets into `## Unknowns / Needs Confirmation`.
 - Inserts the required Cline `## Critical First Step` section if missing.
+- Requires `pack-manifest.md` to include `## Pack Contents` with `README_FOR_CLINE.md`, all five markdown files, and exact screenshot paths.
+- Requires `cline-implementation-prompt.md` to include placement, screenshot usage, implementation sequence, anti-hallucination, Kaze setup, and final response format sections.
+- Repairs contradictory mapping lines that put real exports such as `Button`, `TextField`, `Dropdown`, `Avatar`, or `Typography` under forbidden names.
+- Normalizes clickable quick action component mappings to `Button` unless interactive `Pills` behaviour is confirmed.
 - Rewrites unsafe QA checklist assumptions as TODO-safe checklist items.
 - Deduplicates repaired QA checklist items.
 
@@ -266,14 +348,27 @@ The sanitizer repairs common unsafe AI output:
 
 Validation scans sanitized output for:
 
-- Forbidden Kaze components.
+- Forbidden fake Kaze-prefixed names.
+- Invalid `Exact Kaze Export` table cells.
 - Invented or unavailable filenames.
+- `Filename not in File Map` placeholder text.
 - Reasoning or analysis text.
 - Bad state labels like `Default / Empty`.
+- Manifest visible-action placeholder text.
+- Missing manifest pack inventory or `README_FOR_CLINE.md` reference.
 - Manifest pollution: tokens, spacing, CSS, px, routes, APIs, Storybook, implementation details.
+- Embedded full `pack-manifest.md` or `handoff.md` content inside `cline-implementation-prompt.md`.
+- Missing Cline-ready prompt sections, including Kaze setup guidance.
+- Contradictory Kaze import guidance such as describing `Button` as fake or listing real exports as forbidden.
+- Quick action buttons mapped to `Pills` without confirmed interactive behaviour.
 - Unsafe QA assumptions.
 - Missing Cline verification rules.
 - Missing screenshot filenames in `pack-manifest.md`.
+
+The frontend ZIP validator fails download if the Cline-ready ZIP would miss
+`screenshots/`, screenshot files, `README_FOR_CLINE.md`, `validate-pack.mjs`,
+`cline-readiness-standard.md`, or any generated markdown file. The validation
+script is generated per pack so it checks the exact uploaded screenshot paths.
 
 Warnings are shown under Generation Warnings in the frontend.
 
@@ -283,7 +378,7 @@ Quality is computed after parsing and sanitization.
 
 Statuses:
 
-- `10/10 Ready`: All expected files are present and sanitized output has no warnings.
+- `Pack Ready`: All expected files are present and sanitized output has no warnings.
 - `Needs Review`: Files are usable but warnings remain.
 - `Failed`: Critical parsing or output issues remain, such as missing files or reasoning blocks.
 
@@ -291,10 +386,11 @@ Route-level filename warnings are merged with parser warnings before returning t
 
 ## Kaze Component Catalog
 
-Update confirmed components here:
+Update confirmed exports here:
 
 ```text
 config/kaze-component-catalog.md
+config/kaze-component-catalog.local.json
 ```
 
-Do not add guessed components. Only add a Kaze component after verifying it in the real project, package exports, Storybook, or internal docs.
+Do not add guessed exports. Only add a Kaze export after verifying it in `@pcs-security/kaze-ui-library`, real project usage, Storybook, or internal docs. Sidebar/navigation rail remains `Unknown / verify from Kaze` unless an approved project pattern exists.

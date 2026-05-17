@@ -7,7 +7,7 @@ interface AdvancedSettingsCardProps {
   availableModels: string[];
   isLoadingModels: boolean;
   modelListError: string;
-  onChange: (field: keyof PackFormState, value: string) => void;
+  onChange: (field: keyof PackFormState, value: string | boolean) => void;
   onLoadModels: () => void;
 }
 
@@ -17,7 +17,7 @@ export function AdvancedSettingsCard({
   isLoadingModels,
   modelListError,
   onChange,
-  onLoadModels
+  onLoadModels,
 }: AdvancedSettingsCardProps) {
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const modelComboboxRef = useRef<HTMLDivElement>(null);
@@ -62,10 +62,32 @@ export function AdvancedSettingsCard({
           <input
             value={form.aiEndpointUrl}
             onChange={(event) => onChange("aiEndpointUrl", event.target.value)}
-            placeholder="http://localhost:11434/api/chat"
+            placeholder="http://localhost:11434/api/chat or http://localhost:8000/v1"
             required
           />
+          <p className="field-hint">
+            Ollama uses /api/chat. vLLM and OpenAI-compatible servers can use
+            /v1 or /v1/chat/completions.
+          </p>
         </label>
+
+        <div className="field">
+          <label className="fast-mode-toggle">
+            <input
+              type="checkbox"
+              checked={form.fastMode}
+              onChange={(event) =>
+                onChange("fastMode", event.target.checked)
+              }
+            />
+            <span className="fast-mode-text">
+              <span className="fast-mode-label">Fast Mode</span>
+              <span className="fast-mode-description">
+                Skip deeper analysis for quicker pack generation.
+              </span>
+            </span>
+          </label>
+        </div>
 
         <div className="field">
           <label htmlFor="model-name">Model Name</label>
