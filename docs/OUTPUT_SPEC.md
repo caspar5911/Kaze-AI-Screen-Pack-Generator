@@ -66,11 +66,25 @@ Expected content:
 
 - Overview
 - Screenshots
-- Visible layout
-- Main user actions
-- Visual notes
-- Required states
+- Target Placement with exact allowed target files
+- Screenshot Structure Authority
+- Required Visual Structure
+- Required Content and Section Order
+- Confirmed Public Kaze Exports
+- Layout Implementation Rules
+- Visual Requirements
+- Main actions and required states
 - Unknowns / needs confirmation
+- Validation Requirements
+
+Target placement must state:
+
+- which file owns React structure
+- which file owns CSS/layout styling
+- whether `src/main.tsx` may be edited, and only for Kaze CSS/theme imports
+- whether blank, placeholder, sidebar, or scaffold-only output should be replaced based on the target screenshot
+
+Screenshot structure authority must state that the uploaded screenshot is the source of truth. If existing allowed files are blank, scaffold-only, placeholder-only, or structurally different from the screenshot, the allowed page component/CSS may be rewritten. "Do not rewrite unrelated files" means stay inside the allowed files; it does not mean preserve a wrong layout.
 
 State guidance must be careful. For `HomeGreeting_Default_Desktop.png`, default state is `Default`, not `Default / Empty`.
 
@@ -92,8 +106,8 @@ Purpose: Map visible UI elements to confirmed Kaze exports or verification tasks
 Required table pattern:
 
 ```md
-| UI Element | Intended Kaze Pattern | Exact Kaze Export | Confidence | Notes |
-|---|---|---|---|---|
+| Visual Element | Intended Role | Exact Kaze Export or HTML/CSS | Confidence | Required Visible Text/State | Confirmed Prop Guidance | Fallback if API Uncertain |
+|---|---|---|---|---|---|---|
 ```
 
 Rules:
@@ -101,9 +115,13 @@ Rules:
 - If the export is confirmed in the catalog, the exact export may be used.
 - If not confirmed, use `Unknown / verify from Kaze`.
 - Do not invent `Kaze*` prefixed names.
+- Use public export names only: `TextArea`, not `TextAreaField`; `Swatch`, not `ColourSwatch`.
+- Do not rely on internal declaration names from generated typings.
 - Do not list real exports such as `Button`, `TextField`, `Dropdown`, `Avatar`, or `Typography` under forbidden names.
 - Do not put Font Awesome icon names, notes, or mixed values in `Exact Kaze Export`.
 - For uncertain icons, use `Unknown / verify Font Awesome icon`.
+- Do not assume AntD subcomponent APIs exist through Kaze, such as `Table.Row`, `Table.Cell`, `Steps.Step`, `Tabs.TabPane`, `Dropdown.Option`, or `Select.Option`, unless installed Kaze typings or existing project usage confirms them.
+- Use plain HTML/CSS for page shell, cards, grid, spacing, and layout wrappers unless a Kaze layout export is explicitly confirmed.
 
 The real package is `@pcs-security/kaze-ui-library` v3.1.8 and it uses unprefixed named exports. Examples:
 
@@ -112,6 +130,8 @@ The real package is `@pcs-security/kaze-ui-library` v3.1.8 and it uses unprefixe
 - Dropdown/select: `Dropdown`, not `KazeSelect`
 - Avatar/profile badge: `Avatar`, not `KazeAvatar`
 - Typography/heading: `Typography`, not `KazeTypography`
+- Multiline input: `TextArea`, not `TextAreaField`
+- Color swatch: `Swatch`, not `ColourSwatch`
 
 Sidebar/navigation rail, layout container, and prompt bar wrapper should stay `Unknown / verify from Kaze` unless actual project usage confirms an approved pattern.
 
@@ -124,9 +144,11 @@ Must include:
 - Inputs
 - Critical first step
 - Implementation rules
-- Screen requirements
-- State requirements
-- Validation steps
+- Target Placement
+- Screenshot Structure Authority
+- Validation Requirements
+- Anti-hallucination rules
+- Final response format
 
 It must state that Kaze UI uses unprefixed named exports from `@pcs-security/kaze-ui-library`.
 
@@ -167,6 +189,8 @@ Must include:
 - Visual checks
 - Functional checks
 - Kaze compliance checks
+- Implementation safety checks
+- Validation requirements
 - Code quality checks
 - Accessibility checks
 

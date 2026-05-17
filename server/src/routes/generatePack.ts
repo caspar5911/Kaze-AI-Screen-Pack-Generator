@@ -197,7 +197,10 @@ generatePackRouter.post(
           fields,
           fileMapEntries: fileMap.entries,
         });
-      const qaChecklistMarkdown = buildLocalQaChecklist();
+      const qaChecklistMarkdown = buildLocalQaChecklist({
+        fields,
+        fileMapEntries: fileMap.entries,
+      });
       const clineQaRawResponse = [
         "--- File: cline-implementation-prompt.md ---",
         clineImplementationPromptMarkdown,

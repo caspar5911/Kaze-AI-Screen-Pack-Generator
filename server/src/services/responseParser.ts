@@ -149,6 +149,22 @@ const PACK_CONTENT_FILES = [
   "validate-pack.mjs",
   "cline-readiness-standard.md",
 ];
+const COMPONENT_GALLERY_REQUIRED_SECTION_ORDER = [
+  "Typography",
+  "Buttons",
+  "Avatar + Badge",
+  "Inputs",
+  "Selection",
+  "Segmented + Slider",
+  "Labels",
+  "Progress + Steps",
+  "Navigation",
+  "Feedback",
+  "Upload",
+  "Collapse + Context",
+  "Tables",
+  "Utility Exports",
+];
 
 const COMPONENT_GALLERY_MAPPING_ROWS = [
   [
@@ -1169,9 +1185,13 @@ function sanitizeParsedFiles(
     ),
   };
 
+  const filesWithHandoffGuidance = ensureHandoffGuidanceContent(
+    sanitizedFiles,
+    parsedFilenames,
+  );
   const filesWithoutLeftoverRows = removeScreenSpecificRows(
     ensureComponentGalleryMappingContent(
-      sanitizedFiles,
+      filesWithHandoffGuidance,
       parsedFilenames,
       expectedFileNames,
     ),
@@ -1300,6 +1320,8 @@ function buildComponentGalleryMappingMarkdown(): string {
     "## Import Rule",
     "",
     "Use real unprefixed named exports from `@pcs-security/kaze-ui-library`.",
+    "Use public export names only: `TextArea`, not `TextAreaField`; `Swatch`, not `ColourSwatch`.",
+    "Do not rely on internal declaration names from generated typings.",
     "",
     "Correct:",
     "```ts",
@@ -1309,6 +1331,8 @@ function buildComponentGalleryMappingMarkdown(): string {
     "  Dropdown,",
     "  Avatar,",
     "  Typography,",
+    "  TextArea,",
+    "  Swatch,",
     '} from "@pcs-security/kaze-ui-library";',
     "```",
     "",
@@ -1323,6 +1347,14 @@ function buildComponentGalleryMappingMarkdown(): string {
     "  KazeTypography,",
     '} from "@pcs-security/kaze-ui-library";',
     "```",
+    "",
+    "## Confirmed Public Kaze Exports",
+    "- `TextArea`, not `TextAreaField`.",
+    "- `Swatch`, not `ColourSwatch`.",
+    "- `Button`, not `KazeButton`.",
+    "- `TextField`, not `KazeInput`.",
+    "- `Dropdown`, not `KazeSelect`.",
+    "- Do not assume AntD subcomponent APIs such as `Table.Row`, `Table.Cell`, `Steps.Step`, `Tabs.TabPane`, `Dropdown.Option`, or `Select.Option` unless package typings or existing usage confirms them.",
     "",
     "## Confirmed Kaze Exports Used",
     "",
@@ -1342,11 +1374,12 @@ function buildComponentGalleryMappingMarkdown(): string {
       .map((exportName) => `\`${exportName}\``)
       .join(", ")}.`,
     "",
-    "## Fallback Rule",
+    "## Layout Fallback Rule",
     "",
     "Use `Unknown / verify from Kaze` only as a fallback label when no confirmed Kaze export exists.",
     "Undocumented prop behavior should be verified against package typings or Storybook.",
     "",
+    "Use plain HTML/CSS for page shell, cards, grid, spacing, and wrappers.",
     "Do not invent components such as `KazeCard`, `KazeSidebar`, `KazeIcon`, `KazeLayout`, `KazeBox`, or `KazeFlex`.",
     "",
     "## Icon Usage Rule",
@@ -1370,12 +1403,43 @@ function buildComponentGalleryMappingMarkdown(): string {
     "",
     "## Screen Mapping Table",
     "",
-    "| UI Element | Intended Kaze Pattern | Exact Kaze Export | Confidence | Notes |",
-    "| :--- | :--- | :--- | :--- | :--- |",
-    ...COMPONENT_GALLERY_MAPPING_ROWS.map((row) =>
-      formatMarkdownTableRow([...row]),
-    ),
+    "| Visual Element | Intended Role | Exact Kaze Export or HTML/CSS | Confidence | Required Visible Text/State | Confirmed Prop Guidance | Fallback if API Uncertain |",
+    "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+    ...COMPONENT_GALLERY_MAPPING_ROWS.map(formatComponentGalleryMappingRow),
   ].join("\n");
+}
+
+function formatComponentGalleryMappingRow(row: readonly string[]): string {
+  const [visualElement, intendedRole, exactExport, confidence, notes] = row;
+  return formatMarkdownTableRow([
+    visualElement,
+    intendedRole,
+    exactExport,
+    confidence,
+    getComponentGalleryRequiredVisibleState(visualElement),
+    getComponentGalleryPropGuidance(exactExport),
+    `${notes} Verify exact props against installed Kaze package typings; use plain HTML/CSS wrapper if the API is uncertain.`,
+  ]);
+}
+
+function getComponentGalleryRequiredVisibleState(visualElement: string): string {
+  if (/Utility/i.test(visualElement)) {
+    return "Utility export reference appears after visual component sections.";
+  }
+
+  if (/Table|Grid/i.test(visualElement)) {
+    return "Tables section appears in the wider content area.";
+  }
+
+  return "Visible gallery example appears in the section order from handoff.md.";
+}
+
+function getComponentGalleryPropGuidance(exactExport: string): string {
+  if (/^(?:notification|useNotification)$/.test(exactExport)) {
+    return "Utility export only; use when notification behavior is explicitly required.";
+  }
+
+  return "Use public export name only; confirm props and variants from package typings or existing usage.";
 }
 
 function repairKazeMappingSourceFilesFromManifest(
@@ -1763,6 +1827,283 @@ function sanitizeHandoffContent(
   );
 }
 
+function ensureHandoffGuidanceContent(
+  files: Partial<Record<GeneratedFileName, string>>,
+  parsedFilenames: ParsedFilenameContext[],
+): Partial<Record<GeneratedFileName, string>> {
+  const handoff = files["handoff.md"];
+  if (!handoff) {
+    return files;
+  }
+
+  const manifest = files["pack-manifest.md"] ?? "";
+  const screenFolderName = deriveTargetScreenFolderName(files, parsedFilenames);
+  const componentPath = `src/pages/${screenFolderName}/${screenFolderName}.tsx`;
+  const cssPath = `src/pages/${screenFolderName}/${screenFolderName}.css`;
+  const entrypointPath = "src/main.tsx";
+  const isComponentGallery = /Kaze Component Gallery|Kaze UI Components Gallery|UI Components Gallery|KazeComponentGallery/i.test(
+    `${manifest}\n${handoff}\n${parsedFilenames
+      .map((entry) => `${entry.filename} ${entry.screenName ?? ""}`)
+      .join("\n")}`,
+  );
+
+  const sectionNames = [
+    "Target Placement",
+    "Screenshot Structure Authority",
+    "Required Visual Structure",
+    "Required Content and Section Order",
+    "Confirmed Public Kaze Exports",
+    "Layout Implementation Rules",
+    "Visual Requirements",
+    "Validation Requirements",
+  ];
+  const hasUnknownsSection = /## Unknowns(?:\s*\/\s*Needs Confirmation)?/i.test(
+    handoff,
+  );
+  const sourceUnknowns = readMarkdownSection(
+    manifest,
+    "Unknowns / Needs Confirmation",
+  )
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^[-*]\s+/.test(line));
+  const operationalUnknownBullets = [
+    "- Interactive behavior is illustrative only unless explicitly specified.",
+    "- Do not infer backend APIs, routes, authentication logic, persistence, permissions, or business workflows from the screenshot.",
+    "- If a Kaze export or prop is uncertain, verify against installed package typings or existing project usage.",
+    "- If still uncertain, use a simpler confirmed component or plain HTML/CSS wrapper instead of inventing an API.",
+  ];
+
+  const sections = [
+    [
+      "## Target Placement",
+      `- Implement this screen in \`${componentPath}\`.`,
+      `- React structure is owned by \`${componentPath}\`.`,
+      `- CSS/layout styling is owned by \`${cssPath}\`.`,
+      `- \`${entrypointPath}\` may be edited only for Kaze CSS/theme imports if missing.`,
+      "- Replace existing blank, placeholder, sidebar, or scaffold-only output in the allowed target files when it is absent from the screenshot.",
+    ].join("\n"),
+    [
+      "## Screenshot Structure Authority",
+      "- The target screenshot is the source of truth for visible page structure.",
+      "- If the current implementation is blank, scaffold-only, placeholder-only, or structurally different from the target screenshot, the allowed page component/CSS may be rewritten.",
+      "- Do not rewrite unrelated files means stay inside the allowed files; it does not mean preserving a wrong layout.",
+      "- Do not preserve sidebar, toolbar, footer, modal, table, card, or empty-state scaffolding unless visible in the screenshot.",
+    ].join("\n"),
+    buildRequiredVisualStructureSection(isComponentGallery),
+    buildRequiredContentOrderSection(isComponentGallery),
+    [
+      "## Confirmed Public Kaze Exports",
+      "- Use real public named exports from `@pcs-security/kaze-ui-library`.",
+      "- Use `TextArea`, not `TextAreaField`.",
+      "- Use `Swatch`, not `ColourSwatch`.",
+      "- Use `Button`, not `KazeButton`; `TextField`, not `KazeInput`; `Dropdown`, not `KazeSelect`.",
+      "- Do not rely on internal declaration names from generated typings.",
+      "- Do not assume AntD subcomponent APIs exist through Kaze, such as `Table.Row`, `Table.Cell`, `Steps.Step`, `Tabs.TabPane`, `Dropdown.Option`, or `Select.Option`, unless installed Kaze typings or existing project usage confirms them.",
+    ].join("\n"),
+    [
+      "## Layout Implementation Rules",
+      "- Use plain HTML/CSS for page shell, cards, grid, spacing, and wrappers.",
+      "- Do not invent Kaze layout exports such as `KazeCard`, `KazeLayout`, `KazeFlex`, or `KazeBox`.",
+      "- Use Kaze components only for actual UI controls and display elements.",
+      "- If a Kaze export or prop is uncertain, verify against installed package typings or existing project usage.",
+      "- If still uncertain, use a simpler confirmed component or plain HTML/CSS wrapper instead of inventing an API.",
+    ].join("\n"),
+    [
+      "## Visual Requirements",
+      "- Match the screenshot's background, density, spacing, borders, and visual hierarchy using existing Kaze/project tokens or styles.",
+      "- Content should fill the provided viewport similarly to the screenshot.",
+      "- Avoid leaving the page mostly blank unless the screenshot is an empty state.",
+      "- Typography hierarchy should make page titles, section titles, card titles, labels, and status text scannable according to the screenshot.",
+      "- Avoid generic landing-page structure unless the screenshot is actually a landing page.",
+    ].join("\n"),
+    [
+      "## Validation Requirements",
+      "- Run `npm run build` after edits.",
+      "- The page must not use invalid Kaze exports such as `TextAreaField` or `ColourSwatch`.",
+      "- The page must not contain `.empty-page` placeholder output unless the screenshot is an empty state.",
+      "- The page must not preserve a previous sidebar scaffold unless it appears in the screenshot.",
+      "- The implementation must not edit outside the configured allowed files.",
+    ].join("\n"),
+    ...(hasUnknownsSection
+      ? []
+      : [
+          [
+            "## Unknowns",
+            ...(sourceUnknowns.length > 0
+              ? sourceUnknowns
+              : [
+                  "- Screenshot-specific behaviour not visible in the image is unknown.",
+                ]),
+            ...operationalUnknownBullets,
+          ].join("\n"),
+        ]),
+  ];
+  const handoffWithGuidance = insertHandoffGuidanceBlock(
+    handoff,
+    sectionNames,
+    sections.join("\n\n"),
+  );
+
+  return {
+    ...files,
+    "handoff.md": hasUnknownsSection
+      ? appendMissingUnknownBullets(
+          handoffWithGuidance,
+          operationalUnknownBullets,
+        )
+      : handoffWithGuidance,
+  };
+}
+
+function appendMissingUnknownBullets(
+  handoff: string,
+  bullets: string[],
+): string {
+  const unknownsSectionPattern =
+    /(^|\n)(## Unknowns(?:\s*\/\s*Needs Confirmation)?\s*\n)([\s\S]*?)(?=\n## |$)/i;
+
+  if (!unknownsSectionPattern.test(handoff)) {
+    return handoff;
+  }
+
+  return handoff.replace(
+    unknownsSectionPattern,
+    (match, prefix: string, heading: string, content: string) => {
+      const missingBullets = bullets.filter((bullet) => !content.includes(bullet));
+      if (missingBullets.length === 0) {
+        return match;
+      }
+
+      return `${prefix}${heading}${[
+        content.trimEnd(),
+        ...missingBullets,
+      ]
+        .filter(Boolean)
+        .join("\n")}`;
+    },
+  );
+}
+
+function buildRequiredVisualStructureSection(isComponentGallery: boolean): string {
+  if (isComponentGallery) {
+    return [
+      "## Required Visual Structure",
+      "- Full-page Kaze component gallery screen.",
+      "- Header at the top with visible `Kaze UI Library` title and Kaze version note if present in the screenshot.",
+      "- Main content is a responsive grid of component category cards.",
+      "- Tables section spans the wider content area.",
+      "- Utility exports section appears after visual component sections.",
+      "- No sidebar unless visible in the target screenshot.",
+    ].join("\n");
+  }
+
+  return [
+    "## Required Visual Structure",
+    "- Match the top-level page shell visible in the screenshot.",
+    "- Preserve primary regions in screenshot order: header, sidebar, toolbar, content area, cards, table, form, footer, modal, or empty state only when visible.",
+    "- State-specific content should match the uploaded screenshot state.",
+    "- Do not add regions that are absent from the screenshot.",
+    "- Use the uploaded viewport as the primary responsive assumption unless additional screenshots are provided.",
+  ].join("\n");
+}
+
+function buildRequiredContentOrderSection(isComponentGallery: boolean): string {
+  if (isComponentGallery) {
+    return [
+      "## Required Content and Section Order",
+      ...COMPONENT_GALLERY_REQUIRED_SECTION_ORDER.map(
+        (label, index) => `${index + 1}. ${label}`,
+      ),
+    ].join("\n");
+  }
+
+  return [
+    "## Required Content and Section Order",
+    "- List and implement visible sections in exact screenshot order.",
+    "- Include required headings, labels, buttons, controls, cards, tables, tabs, and status elements shown in the screenshot.",
+    "- Mark optional or uncertain content as unknown instead of inventing it.",
+    "- Do not add generic landing-page sections unless they are visible in the screenshot.",
+  ].join("\n");
+}
+
+function insertHandoffGuidanceBlock(
+  handoff: string,
+  sectionNames: string[],
+  guidanceBlock: string,
+): string {
+  const withoutGuidance = removeMarkdownSections(handoff, sectionNames).trim();
+  const screenshotsSectionPattern =
+    /(^|\n)## Screenshots\s*\n[\s\S]*?(?=\n## |$)/i;
+
+  if (screenshotsSectionPattern.test(withoutGuidance)) {
+    return withoutGuidance
+      .replace(screenshotsSectionPattern, (match) => `${match}\n\n${guidanceBlock}`)
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  const titleMatch = withoutGuidance.match(/^# .+$/m);
+  if (!titleMatch || titleMatch.index === undefined) {
+    return [withoutGuidance, guidanceBlock].filter(Boolean).join("\n\n");
+  }
+
+  const insertAt = titleMatch.index + titleMatch[0].length;
+  return [
+    withoutGuidance.slice(0, insertAt).trimEnd(),
+    "",
+    guidanceBlock,
+    "",
+    withoutGuidance.slice(insertAt).trimStart(),
+  ]
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function deriveTargetScreenFolderName(
+  files: Partial<Record<GeneratedFileName, string>>,
+  parsedFilenames: ParsedFilenameContext[],
+): string {
+  const manifest = files["pack-manifest.md"] ?? "";
+  const context = [
+    manifest,
+    files["handoff.md"] ?? "",
+    ...parsedFilenames.map(
+      (entry) => `${entry.filename} ${entry.screenName ?? ""}`,
+    ),
+  ].join(" ");
+
+  if (/component\s*gallery|components\s*gallery|kazecomponentgallery|kaze\s*ui\s*components/i.test(context)) {
+    return "UIComponentsGallery";
+  }
+
+  const projectName = readMarkdownSection(manifest, "Project / Feature Name")
+    .split("\n")[0]
+    .trim();
+  const source =
+    projectName ||
+    parsedFilenames[0]?.screenName?.trim() ||
+    parsedFilenames[0]?.filename.replace(/\.[^.]+$/, "") ||
+    "GeneratedScreen";
+
+  return toPascalIdentifier(source) || "GeneratedScreen";
+}
+
+function toPascalIdentifier(value: string): string {
+  const words = value.match(/[A-Za-z0-9]+/g) ?? [];
+
+  return words
+    .map((word) => {
+      if (/^[A-Z0-9]+$/.test(word)) {
+        return word;
+      }
+
+      return `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
+    })
+    .join("");
+}
+
 function normalizeComponentGalleryExportCountText(text: string): string {
   return text
     .replace(
@@ -1825,7 +2166,13 @@ function sanitizeKazeComponentMappingContent(
         if (!cells) {
           inComponentMappingTable = false;
           inIconMappingTable = false;
-        } else if (cells.some((cell) => /^Exact Kaze Export$/i.test(cell))) {
+        } else if (
+          cells.some((cell) =>
+            /^(?:Exact Kaze Export|Exact Kaze Export or HTML\/CSS|Recommended Kaze Component or HTML\/CSS)$/i.test(
+              cell,
+            ),
+          )
+        ) {
           inComponentMappingTable = true;
           inIconMappingTable = false;
         } else if (cells.some((cell) => /^Component$/i.test(cell))) {
@@ -1833,7 +2180,7 @@ function sanitizeKazeComponentMappingContent(
           inComponentMappingTable = false;
         } else if (
           !isMarkdownTableSeparator(cells) &&
-          /^UI Element$/i.test(cells[0])
+          /^(?:UI Element|Visual Element)$/i.test(cells[0])
         ) {
           inComponentMappingTable = false;
         } else if (
@@ -1948,9 +2295,11 @@ function ensureKazeComponentMappingRuleText(
 
   const mappingWithoutGuidance = removeMarkdownSections(mapping, [
     "Import Rule",
+    "Confirmed Public Kaze Exports",
     "Confirmed Kaze Exports Used",
     "Forbidden Fake Names",
     "Fallback Rule",
+    "Layout Fallback Rule",
     "Icon Usage Rule",
   ]);
 
@@ -1959,6 +2308,8 @@ function ensureKazeComponentMappingRuleText(
     "## Import Rule",
     "",
     "Use real unprefixed named exports from `@pcs-security/kaze-ui-library`.",
+    "Use public export names only: `TextArea`, not `TextAreaField`; `Swatch`, not `ColourSwatch`.",
+    "Do not rely on internal declaration names from generated typings.",
     "",
     "**Correct:**",
     "```ts",
@@ -1968,6 +2319,8 @@ function ensureKazeComponentMappingRuleText(
     "  Dropdown,",
     "  Avatar,",
     "  Typography,",
+    "  TextArea,",
+    "  Swatch,",
     '} from "@pcs-security/kaze-ui-library";',
     "```",
     "",
@@ -1982,6 +2335,15 @@ function ensureKazeComponentMappingRuleText(
     "  KazeTypography,",
     '} from "@pcs-security/kaze-ui-library";',
     "```",
+    "",
+    "## Confirmed Public Kaze Exports",
+    "",
+    "- `TextArea`, not `TextAreaField`.",
+    "- `Swatch`, not `ColourSwatch`.",
+    "- `Button`, not `KazeButton`.",
+    "- `TextField`, not `KazeInput`.",
+    "- `Dropdown`, not `KazeSelect`.",
+    "- Do not assume AntD subcomponent APIs such as `Table.Row`, `Table.Cell`, `Steps.Step`, `Tabs.TabPane`, `Dropdown.Option`, or `Select.Option` unless package typings or existing usage confirms them.",
     "",
     "## Confirmed Kaze Exports Used",
     "",
@@ -2002,12 +2364,13 @@ function ensureKazeComponentMappingRuleText(
     "",
     ...fakeNames.map((component) => `- \`${component}\``),
     "",
-    "## Fallback Rule",
+    "## Layout Fallback Rule",
     "",
     "If a visual pattern does not map to a confirmed Kaze export, write:",
     "",
     "`Unknown / verify from Kaze`",
     "",
+    "Use plain HTML/CSS for page shell, cards, grid, spacing, and wrappers.",
     "Do not invent components such as `KazeCard`, `KazeSidebar`, `KazeIcon`, `KazeLayout`, `KazeBox`, or `KazeFlex`.",
     "",
     `Primary fake aliases that must never be imported as valid exports: ${primaryFakeNames.map((name) => `\`${name}\``).join(", ")}.`,
@@ -2294,7 +2657,13 @@ export function extractUnknownCells(text: string): Array<{
       return;
     }
 
-    if (cells.some((cell) => /^Exact Kaze Export$/i.test(cell))) {
+    if (
+      cells.some((cell) =>
+        /^(?:Exact Kaze Export|Exact Kaze Export or HTML\/CSS|Recommended Kaze Component or HTML\/CSS)$/i.test(
+          cell,
+        ),
+      )
+    ) {
       inScreenMappingTable = true;
       inIconMappingTable = false;
       return;
@@ -2306,7 +2675,10 @@ export function extractUnknownCells(text: string): Array<{
       return;
     }
 
-    if (!isMarkdownTableSeparator(cells) && /^UI Element$/i.test(cells[0])) {
+    if (
+      !isMarkdownTableSeparator(cells) &&
+      /^(?:UI Element|Visual Element)$/i.test(cells[0])
+    ) {
       inScreenMappingTable = false;
     }
     if (!isMarkdownTableSeparator(cells) && /^Icon Element$/i.test(cells[0])) {
@@ -2329,7 +2701,7 @@ export function extractUnknownCells(text: string): Array<{
         pattern: cells[1],
         cellValue: componentCell,
         confidence: cells[3],
-        notes: cells[4] ?? "",
+        notes: cells.slice(4).join(" "),
       });
     }
   });
@@ -2897,6 +3269,12 @@ function validateFinalOutput(
   warnings.push(...visualWarnings);
   reviewIssues.push(...visualWarnings);
 
+  const handoffWarnings = shouldValidateExpectedFile(params, "handoff.md")
+    ? validateHandoffGuidance(params.files["handoff.md"])
+    : [];
+  warnings.push(...handoffWarnings);
+  reviewIssues.push(...handoffWarnings);
+
   const shouldValidateMapping = shouldValidateExpectedFile(
     params,
     "kaze-component-mapping.md",
@@ -3119,6 +3497,66 @@ function validateHandoffAndClineVisualSafety(
   return warnings;
 }
 
+function validateHandoffGuidance(handoff: string | undefined): string[] {
+  if (!handoff) {
+    return [];
+  }
+
+  const requiredSections: Array<{ label: string; pattern: RegExp }> = [
+    { label: "Target Placement", pattern: /## Target Placement/i },
+    {
+      label: "Screenshot Structure Authority",
+      pattern: /## Screenshot Structure Authority/i,
+    },
+    {
+      label: "Required Visual Structure",
+      pattern: /## Required Visual Structure/i,
+    },
+    {
+      label: "Required Content and Section Order",
+      pattern: /## Required Content and Section Order/i,
+    },
+    {
+      label: "Confirmed Public Kaze Exports",
+      pattern: /## Confirmed Public Kaze Exports/i,
+    },
+    {
+      label: "Layout Implementation Rules",
+      pattern: /## Layout Implementation Rules/i,
+    },
+    { label: "Visual Requirements", pattern: /## Visual Requirements/i },
+    {
+      label: "Validation Requirements",
+      pattern: /## Validation Requirements/i,
+    },
+    { label: "Unknowns", pattern: /## Unknowns/i },
+  ];
+
+  const warnings = requiredSections
+    .filter(({ pattern }) => !pattern.test(handoff))
+    .map(
+      ({ label }) =>
+        `handoff.md is missing required implementation guidance section: ${label}.`,
+    );
+
+  if (!/src\/pages\/[A-Za-z0-9]+\/[A-Za-z0-9]+\.tsx/.test(handoff)) {
+    warnings.push("handoff.md is missing exact target React file path.");
+  }
+
+  if (!/src\/pages\/[A-Za-z0-9]+\/[A-Za-z0-9]+\.css/.test(handoff)) {
+    warnings.push("handoff.md is missing exact target CSS file path.");
+  }
+
+  if (
+    !/TextArea[\s\S]*not[\s\S]*TextAreaField/i.test(handoff) ||
+    !/Swatch[\s\S]*not[\s\S]*ColourSwatch/i.test(handoff)
+  ) {
+    warnings.push("handoff.md is missing public TextArea/Swatch API guidance.");
+  }
+
+  return warnings;
+}
+
 function getAllowedKazeComponentsFromCatalog(_params: {
   files: Partial<Record<GeneratedFileName, string>>;
 }): string[] {
@@ -3153,20 +3591,30 @@ function validateKazeComponentMapping(
     lineForbidsConfirmedCoreKazeExports(line, allowedComponents);
   if (mapping.split("\n").some(lineChecksForbidsCore)) {
     warnings.push(
-      "kaze-component-mapping.md incorrectly lists real Kaze exports such as Button, TextField, Dropdown, Avatar, or Typography as forbidden.",
+      "kaze-component-mapping.md incorrectly lists real Kaze exports such as Button, TextField, Dropdown, Avatar, Typography, TextArea, or Swatch as forbidden.",
     );
   }
 
   if (
     !/## Import Rule/i.test(mapping) ||
+    !/## Confirmed Public Kaze Exports/i.test(mapping) ||
     !/## Confirmed Kaze Exports Used/i.test(mapping) ||
     !/## Forbidden Fake Names/i.test(mapping) ||
-    !/## Fallback Rule/i.test(mapping) ||
+    !/## (?:Layout )?Fallback Rule/i.test(mapping) ||
     !/Button[\s,\n]+TextField[\s,\n]+Dropdown/i.test(mapping) ||
     !/KazeButton[\s,\n]+KazeInput[\s,\n]+KazeSelect/i.test(mapping)
   ) {
     warnings.push(
       "kaze-component-mapping.md is missing clear import, confirmed export, forbidden fake-name, or fallback guidance.",
+    );
+  }
+
+  if (
+    !/TextArea[\s\S]*not[\s\S]*TextAreaField/i.test(mapping) ||
+    !/Swatch[\s\S]*not[\s\S]*ColourSwatch/i.test(mapping)
+  ) {
+    warnings.push(
+      "kaze-component-mapping.md is missing public TextArea/Swatch import guidance.",
     );
   }
 
@@ -3180,7 +3628,13 @@ function validateKazeComponentMapping(
       return;
     }
 
-    if (cells.some((cell) => /^Exact Kaze Export$/i.test(cell))) {
+    if (
+      cells.some((cell) =>
+        /^(?:Exact Kaze Export|Recommended Kaze Component or HTML\/CSS|Exact Kaze Export or HTML\/CSS)$/i.test(
+          cell,
+        ),
+      )
+    ) {
       inComponentMappingTable = true;
       inIconMappingTable = false;
       return;
@@ -3192,7 +3646,10 @@ function validateKazeComponentMapping(
       return;
     }
 
-    if (!isMarkdownTableSeparator(cells) && /^UI Element$/i.test(cells[0])) {
+    if (
+      !isMarkdownTableSeparator(cells) &&
+      /^(?:UI Element|Visual Element)$/i.test(cells[0])
+    ) {
       inComponentMappingTable = false;
     }
 
@@ -3253,6 +3710,9 @@ function validateKazeComponentMapping(
       if (
         exactComponent.trim() &&
         !/Unknown/i.test(exactComponent.trim()) &&
+        !/^(?:(?:Plain\s+)?HTML\/CSS|semantic HTML\/CSS|standard HTML\/CSS|plain HTML)$/i.test(
+          exactComponent.trim(),
+        ) &&
         !allowedComponents.has(exactComponent.trim())
       ) {
         const bareUnknown = /^Unknown$/i.test(exactComponent.trim());
@@ -3381,20 +3841,20 @@ function validateClinePrompt(prompt: string | undefined): string[] {
         /If a Kaze export is not verified:[\s\S]*First search existing project patterns[\s\S]*Document the fallback clearly|If a Kaze component is not verified:[\s\S]*First search existing project patterns[\s\S]*Document the fallback clearly/i,
     },
     {
-      label: "Placement Rule section",
-      pattern: /## Placement Rule/i,
+      label: "Target Placement section",
+      pattern: /## Target Placement/i,
     },
     {
       label: "Inspect project structure before creating files",
-      pattern: /Before creating files, inspect the actual project structure\./i,
+      pattern: /Before creating files, inspect the actual project structure/i,
     },
     {
-      label: "Screenshot Usage Rule section",
-      pattern: /## Screenshot Usage Rule/i,
+      label: "Screenshot Structure Authority section",
+      pattern: /## Screenshot Structure Authority/i,
     },
     {
-      label: "Screenshot is visual reference only",
-      pattern: /screenshot is a visual reference only/i,
+      label: "Screenshot is source of truth",
+      pattern: /screenshot is the source of truth/i,
     },
     {
       label: "Screenshot does not infer backend or route behavior",
@@ -3405,6 +3865,18 @@ function validateClinePrompt(prompt: string | undefined): string[] {
       label: "Unclear screenshot behavior stays static unless specified",
       pattern:
         /implement only static frontend behaviour unless explicitly specified in `?handoff\.md`?/i,
+    },
+    {
+      label: "Validation Requirements section",
+      pattern: /## Validation Requirements/i,
+    },
+    {
+      label: "Run npm build",
+      pattern: /Run `?npm run build`? after edits|Run `?npm run build`?\./i,
+    },
+    {
+      label: "Invalid internal Kaze names are forbidden",
+      pattern: /TextAreaField[\s\S]*ColourSwatch/i,
     },
     {
       label: "Implementation Sequence section",
@@ -3463,8 +3935,8 @@ function validateClinePrompt(prompt: string | undefined): string[] {
     { label: "TODOs left unresolved", pattern: /TODOs left unresolved/i },
     { label: "Typecheck/build result", pattern: /Typecheck\/build result/i },
     {
-      label: "Run typecheck/build if available",
-      pattern: /Run typecheck\/build if available|typecheck.*build/i,
+      label: "Run npm run build after edits",
+      pattern: /Run `?npm run build`? after edits|Run `?npm run build`?\./i,
     },
   ];
 
@@ -3523,6 +3995,14 @@ function validateQaChecklist(checklist: string | undefined): string[] {
       pattern: /##\s+(?:\d+\.\s*)?Implementation Safety/i,
     },
     { label: "Code Quality", pattern: /##\s+(?:\d+\.\s*)?Code Quality/i },
+    {
+      label: "Validation Requirements",
+      pattern: /##\s+(?:\d+\.\s*)?Validation Requirements/i,
+    },
+    {
+      label: "Accessibility",
+      pattern: /##\s+(?:\d+\.\s*)?Accessibility/i,
+    },
     { label: "Final Response", pattern: /##\s+(?:\d+\.\s*)?Final Response/i },
   ];
 

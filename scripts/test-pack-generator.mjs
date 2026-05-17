@@ -82,7 +82,10 @@ const baseFiles = {
     fields,
     fileMapEntries,
   }),
-  "qa-checklist.md": buildLocalQaChecklist(),
+  "qa-checklist.md": buildLocalQaChecklist({
+    fields,
+    fileMapEntries,
+  }),
 };
 
 const testCatalog = JSON.stringify({
@@ -534,19 +537,19 @@ assert.doesNotMatch(
 );
 assert.match(
   repairedBadMapping,
-  /\| Checkbox Dropdown Example \| Multi-select dropdown \| CheckboxDropdown \| High \| Use for checkbox-based multi-select dropdown\. \|/,
+  /\| Checkbox Dropdown Example \| Multi-select dropdown \| CheckboxDropdown \| High \|/,
 );
 assert.match(
   repairedBadMapping,
-  /\| Enterprise Grid Example \| Complex data grid \| AgGridTable \| High \| Use for sortable\/filterable enterprise grid\. \|/,
+  /\| Enterprise Grid Example \| Complex data grid \| AgGridTable \| High \|/,
 );
 assert.match(
   repairedBadMapping,
-  /\| Lozenge Example \| Status label \| Lozenge \| High \| Use for compact status\/state label\. \|/,
+  /\| Lozenge Example \| Status label \| Lozenge \| High \|/,
 );
 assert.match(
   repairedBadMapping,
-  /\| Radio Group Example \| Grouped radio options \| RadioGroup \| High \| Use for single-choice grouped options\. \|/,
+  /\| Radio Group Example \| Grouped radio options \| RadioGroup \| High \|/,
 );
 assert.doesNotMatch(
   repairedBadMapping,
@@ -578,6 +581,13 @@ assert.match(
 assert.match(
   repairedBadMapping,
   /Visual Kaze exports are covered in the mapping table above\./,
+);
+assert.match(repairedBadMapping, /## Confirmed Public Kaze Exports/);
+assert.match(repairedBadMapping, /`TextArea`, not `TextAreaField`/);
+assert.match(repairedBadMapping, /`Swatch`, not `ColourSwatch`/);
+assert.match(
+  repairedBadMapping,
+  /\| Visual Element \| Intended Role \| Exact Kaze Export or HTML\/CSS \| Confidence \| Required Visible Text\/State \| Confirmed Prop Guidance \| Fallback if API Uncertain \|/,
 );
 
 [
@@ -676,6 +686,19 @@ assert.doesNotMatch(allContent, /AIAssistantHomeScreen/);
 assert.doesNotMatch(allContent, /white circular action button/i);
 assert.doesNotMatch(handoff, /voice input/i);
 assert.match(clinePrompt, /src\/pages\/UIComponentsGallery\//);
+assert.match(handoff, /## Target Placement/);
+assert.match(handoff, /src\/pages\/UIComponentsGallery\/UIComponentsGallery\.tsx/);
+assert.match(handoff, /## Screenshot Structure Authority/);
+assert.match(handoff, /## Required Content and Section Order/);
+assert.match(handoff, /1\. Typography[\s\S]*14\. Utility Exports/);
+assert.match(handoff, /`TextArea`, not `TextAreaField`/);
+assert.match(handoff, /`Swatch`, not `ColourSwatch`/);
+assert.match(clinePrompt, /## Target Placement/);
+assert.match(clinePrompt, /## Screenshot Structure Authority/);
+assert.match(clinePrompt, /## Validation Requirements/);
+assert.match(clinePrompt, /npm run build/);
+assert.match(checklist, /Required section order matches handoff\.md: Typography/);
+assert.match(checklist, /Does not import `TextAreaField`; use `TextArea` instead\./);
 
 const contradictionErrors = validateKazeMappingContent({
   "kaze-component-mapping.md":
@@ -744,6 +767,15 @@ assert.deepEqual(
   allowedWrongExampleErrors,
   [],
   "validator must pass when fake names are only shown as wrong examples",
+);
+
+const internalImportErrors = validateKazeMappingContent({
+  "kaze-component-mapping.md":
+    'import { TextAreaField, ColourSwatch } from "@pcs-security/kaze-ui-library";',
+});
+assert.ok(
+  internalImportErrors.length > 0,
+  "validator must fail when internal Kaze names are imported as public exports",
 );
 
 console.log("Pack generator regression tests passed.");

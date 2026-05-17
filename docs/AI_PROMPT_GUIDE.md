@@ -96,12 +96,15 @@ The downloaded Cline-ready ZIP contains:
 
 `cline-implementation-prompt.md` must include these Cline safety sections:
 
-- `## Placement Rule`
-- `## Screenshot Usage Rule`
+- `## Target Placement`
+- `## Screenshot Structure Authority`
+- `## Validation Requirements`
 - `## Implementation Sequence`
 - `## Anti-Hallucination Rules`
 - `## Kaze Setup Rule`
 - `## Final Response Format`
+
+`handoff.md` must include exact target placement, screenshot structure authority, required visible structure, required content/section order, confirmed public Kaze export rules, layout implementation rules, visual requirements, validation requirements, and operational unknowns.
 
 ## Sanitizer and Validator
 
@@ -116,6 +119,8 @@ The sanitizer in `responseParser.ts` handles deterministic output issues:
 - Validates manifest pack inventory and Cline-ready prompt sections
 - Repairs and flags contradictory mapping lines that list real exports such as `Button`, `TextField`, `Dropdown`, `Avatar`, or `Typography` as forbidden
 - Normalizes quick action mappings away from `Pills` unless interactive behavior is confirmed
+- Inserts required handoff guidance sections when the model returns a minimal handoff
+- Blocks internal Kaze import names such as `TextAreaField` and `ColourSwatch` as public imports
 - Adds a generated `validate-pack.mjs` script so exported ZIPs can self-check before use
 
 **Do not solve repeated output problems by adding huge prompt text.** Use deterministic repair rules in `responseParser.ts`.
